@@ -1,35 +1,41 @@
-.DS_Store
-.DS_Store?
-VTune\ Profiler\ Results
-cmake-build*
-*.swp
-*.Trashes
-xcuserdata
-xcshareddata
-*.xcworkspace
-build
-.clang_complete
-.vs
-.ycm_extra_conf.py*
-*.pbxuser
-*.perspective
-*.perspectivev3
-*.sdf
-*.suo
-*.psess
-*.vsp
-*.tlog
-*.user
+# Prerequisites
+*.d
+
+# Compiled Object files
+*.slo
+*.lo
+*.o
+*.obj
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Fortran module files
+*.mod
+*.smod
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
 *.app
-*.opendb
-*.opensdf
-*.component
-*.VST
-*.lv2
-*.vst
-*.VST3
-*.vst3
-*.tar.gz
-Debug
-Profile
-Release
+
+.DS_STORE
+build
+dataset
+.vs
+.egg
+*.egg-info*
+vita/LICENSE
+dist

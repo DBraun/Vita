@@ -28,6 +28,14 @@
 #include <set>
 #include <string>
 
+#include <nanobind/nanobind.h>
+#include <nanobind/ndarray.h>
+
+#include <filesystem>
+
+namespace nb = nanobind;
+
+
 namespace vital {
   class SoundEngine;
   struct Output;
@@ -58,6 +66,7 @@ class SynthBase : public MidiManager::Listener {
     void valueChangedExternal(const std::string& name, vital::mono_float value);
     void valueChangedInternal(const std::string& name, vital::mono_float value);
     bool connectModulation(const std::string& source, const std::string& destination);
+    bool pyConnectModulation(const std::string& source, const std::string& destination);
     void connectModulation(vital::ModulationConnection* connection);
     void disconnectModulation(const std::string& source, const std::string& destination);
     void disconnectModulation(vital::ModulationConnection* connection);
@@ -83,7 +92,12 @@ class SynthBase : public MidiManager::Listener {
     void loadTuningFile(const File& file);
     void loadInitPreset();
     bool loadFromFile(File preset, std::string& error);
-    void renderAudioToFile(File file, float seconds, float bpm, std::vector<int> notes, bool render_images);
+    bool pyLoadFromFile(std::string path);
+    std::string pyToJson() { return saveToJson().dump(); }
+    bool loadFromString(std::string json_text);
+    void renderAudioToFile(File file, std::vector<int> notes, float velocity, float note_dur, float render_dur, bool render_images);
+    bool renderAudioToFile2(const std::string& output_path, const int& midi_note, float velocity, float note_dur, float render_dur);
+    nb::ndarray<float, nb::shape<2, -1>, nb::numpy> renderAudioToNumpy(const int& midi_note, float velocity, float note_dur, float render_dur);
     void renderAudioForResynthesis(float* data, int samples, int note);
     bool saveToFile(File preset);
     bool saveToActiveFile();
@@ -123,6 +137,8 @@ class SynthBase : public MidiManager::Listener {
     virtual const CriticalSection& getCriticalSection() = 0;
     virtual void pauseProcessing(bool pause) = 0;
     Tuning* getTuning() { return &tuning_; }
+    
+    void pySetBPM(float bpm);
 
     struct ValueChangedCallback : public CallbackMessage {
       ValueChangedCallback(std::shared_ptr<SynthBase*> listener, std::string name, vital::mono_float val) :

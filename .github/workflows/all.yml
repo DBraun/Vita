@@ -1,0 +1,209 @@
+name: Python package
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-ubuntu:
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - { python-version: "3.9", pythonLibPath: "/opt/python/cp39-cp39/lib", pythonInclude: "/opt/python/cp39-cp39/include/python3.9", cibwbuild: "cp39-manylinux_x86_64"}
+        - { python-version: "3.10", pythonLibPath: "/opt/python/cp310-cp310/lib", pythonInclude: "/opt/python/cp310-cp310/include/python3.10", cibwbuild: "cp310-manylinux_x86_64"}
+        - { python-version: "3.11", pythonLibPath: "/opt/python/cp311-cp311/lib", pythonInclude: "/opt/python/cp311-cp311/include/python3.11", cibwbuild: "cp311-manylinux_x86_64"}
+        - { python-version: "3.12", pythonLibPath: "/opt/python/cp312-cp312/lib", pythonInclude: "/opt/python/cp312-cp312/include/python3.12", cibwbuild: "cp312-manylinux_x86_64"}
+        - { python-version: "3.13", pythonLibPath: "/opt/python/cp313-cp313/lib", pythonInclude: "/opt/python/cp313-cp313/include/python3.13", cibwbuild: "cp313-manylinux_x86_64"}
+        # - { python-version: "3.9", pythonLibPath: "/opt/python/cp39-cp39/lib", pythonInclude: "/opt/python/cp39-cp39/include/python3.9", cibwbuild: "cp39-manylinux_aarch64"}
+        # - { python-version: "3.10", pythonLibPath: "/opt/python/cp310-cp310/lib", pythonInclude: "/opt/python/cp310-cp310/include/python3.10", cibwbuild: "cp310-manylinux_aarch64"}
+        # - { python-version: "3.11", pythonLibPath: "/opt/python/cp311-cp311/lib", pythonInclude: "/opt/python/cp311-cp311/include/python3.11", cibwbuild: "cp311-manylinux_aarch64"}
+        # - { python-version: "3.12", pythonLibPath: "/opt/python/cp312-cp312/lib", pythonInclude: "/opt/python/cp312-cp312/include/python3.12", cibwbuild: "cp312-manylinux_aarch64"}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: true
+
+    - name: Set up QEMU for aarch64 on Linux
+      if: runner.os == 'Linux'
+      uses: docker/setup-qemu-action@v3
+      with:
+        platforms: all
+
+    - name: Build wheels
+      uses: pypa/cibuildwheel@v2.20.0
+      env:
+        CIBW_PLATFORM: linux
+        CIBW_BUILD: ${{ matrix.cibwbuild }}
+        CIBW_BUILD_VERBOSITY: 3
+        CIBW_MANYLINUX_X86_64_IMAGE: manylinux2014
+        CIBW_MANYLINUX_AARCH64_IMAGE: manylinux2014
+        CIBW_BEFORE_BUILD_LINUX:
+          export LIBDIR=${{ matrix.pythonLibPath }} && export PYTHONLIBPATH=${{ matrix.pythonLibPath }} && export PYTHONINCLUDEPATH=${{ matrix.pythonInclude }} && sh -v build_linux.sh
+        CIBW_REPAIR_WHEEL_COMMAND_LINUX: pip install auditwheel-symbols && (auditwheel repair -w {dest_dir} {wheel} || auditwheel-symbols --manylinux 2014 {wheel})
+        CIBW_TEST_REQUIRES: -r test-requirements.txt
+        CIBW_TEST_COMMAND: "rm -rf vita/*.so* && cd {project}/tests && python -m pytest -v ."
+        CIBW_ARCHS: auto64
+        CIBW_ARCHS_LINUX: auto64 aarch64  # On an Linux Intel runner with qemu installed, build Intel and ARM wheels
+
+    - uses: actions/upload-artifact@v4
+      with:
+        name: artifact-${{ matrix.cibwbuild}}
+        path: ./wheelhouse/*.whl
+
+  build-macos:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - { os: macos-13, build: cp39-macosx_x86_64, python-version: "3.9", ARCHS: "x86_64" }
+        - { os: macos-13, build: cp310-macosx_x86_64, python-version: "3.10", ARCHS: "x86_64" }
+        - { os: macos-13, build: cp311-macosx_x86_64, python-version: "3.11", ARCHS: "x86_64" }
+        - { os: macos-13, build: cp312-macosx_x86_64, python-version: "3.12", ARCHS: "x86_64" }
+        - { os: macos-13, build: cp313-macosx_x86_64, python-version: "3.13", ARCHS: "x86_64" }
+        - { os: macos-14, build: cp39-macosx_arm64, python-version: "3.9", ARCHS: "arm64" }
+        - { os: macos-14, build: cp310-macosx_arm64, python-version: "3.10", ARCHS: "arm64" }
+        - { os: macos-14, build: cp311-macosx_arm64, python-version: "3.11", ARCHS: "arm64" }
+        - { os: macos-14, build: cp312-macosx_arm64, python-version: "3.12", ARCHS: "arm64" }
+        - { os: macos-14, build: cp313-macosx_arm64, python-version: "3.13", ARCHS: "arm64" }
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: true
+
+    - name: Get CMake
+      uses: lukka/get-cmake@latest
+
+    - name: Build wheels ${{ matrix.python-version }}
+      uses: pypa/cibuildwheel@v2.20.0
+      env:
+        # note that the Projucer project refers to PYTHONMAJOR and pythonLocation, so they must be set here
+        PYTHONMAJOR: ${{ matrix.python-version }}
+        MACOSX_DEPLOYMENT_TARGET: 11.0
+        CIBW_BUILD_VERBOSITY: 1
+        CIBW_BEFORE_BUILD: export pythonLocation=$(python${{matrix.python-version}}-config --prefix) && sh -v build_macos.sh
+        CIBW_TEST_REQUIRES: -r test-requirements.txt
+        CIBW_TEST_COMMAND: "cd {project}/tests; python -m pytest -v ."
+        CIBW_BUILD: ${{matrix.build}}
+        CIBW_ARCHS: auto64
+        CIBW_ARCHS_MACOS: ${{matrix.ARCHS}}
+        CIBW_ENVIRONMENT_MACOS: ARCHS="${{matrix.ARCHS}}"
+
+    - uses: actions/upload-artifact@v4
+      with:
+        name: artifact-macos-${{ matrix.build}}
+        path: ./wheelhouse/*.whl
+
+  build-windows:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # fail-fast: false
+      matrix:
+        include:
+        - { os: windows-2022, python-version: "3.9", CIBW-BUILD: "cp39*"}
+        - { os: windows-2022, python-version: "3.10", CIBW-BUILD: "cp310*"}
+        - { os: windows-2022, python-version: "3.11", CIBW-BUILD: "cp311*"}
+        - { os: windows-2022, python-version: "3.12", CIBW-BUILD: "cp312*"}
+        - { os: windows-2022, python-version: "3.13", CIBW-BUILD: "cp313*"}
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: true
+
+    - name: Setup Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Add msbuild to PATH
+      uses: microsoft/setup-msbuild@v2
+
+    - name: Get CMake
+      uses: lukka/get-cmake@latest
+
+    - name: Build Nanobind
+      run: |
+        cd third_party/nanobind
+        git submodule update --init --recursive
+        cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+        cmake --build build --config Release
+
+    - name: Build Windows
+      run: |
+        msbuild headless/builds/VisualStudio2022/Vita.sln /property:Configuration=Release
+
+    - name: Install cibuildwheel
+      run: python -m pip install cibuildwheel
+
+    - name: Build Wheels
+      run: |
+        python -m cibuildwheel --output-dir wheelhouse
+      env:
+        PYTHONMAJOR: ${{ matrix.python-version }}
+        CIBW_BUILD_VERBOSITY: 1
+        CIBW_TEST_REQUIRES: -r test-requirements.txt
+        CIBW_TEST_COMMAND: "cd /D {project}\\tests && python -m pytest -v ."
+        CIBW_ARCHS: auto64
+        CIBW_BUILD: ${{matrix.CIBW-BUILD}}
+
+    - uses: actions/upload-artifact@v4
+      with:
+        name: artifact-windows-${{ matrix.python-version}}
+        path: ./wheelhouse/*.whl
+
+  # build_docs:
+  #   permissions:
+  #     contents: write
+  #   runs-on: ubuntu-latest
+  #   needs: test
+  #   steps:
+  #   - name: Checkout code
+  #     uses: actions/checkout@v4
+
+  #   - name: Set up Python
+  #     uses: actions/setup-python@v5
+  #     with:
+  #       python-version: 3.11
+
+  #   - name: Install dependencies
+  #     run: |
+  #       sudo apt-get install libsndfile-dev
+  #       python -m pip install --upgrade pip
+  #       pip install pytest
+  #       pip install furo
+
+  #   - name: Build Docs
+  #     run: |
+  #       cd docs
+  #       make html
+
+  #   - name: Deploy Docs to GitHub Pages
+  #     uses: peaceiris/actions-gh-pages@v4
+  #     with:
+  #       github_token: ${{ secrets.GITHUB_TOKEN }}
+  #       publish_dir: ./docs/build/html
+
+  upload-pypi:
+    needs: [build-windows, build-ubuntu, build-macos]
+    runs-on: ubuntu-latest
+    name: "Upload wheels to PyPI"
+    if: github.event_name == 'release' && github.event.action == 'published'
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: artifact-*
+          merge-multiple: true
+          path: dist
+
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          user: __token__
+          password: ${{ secrets.PYPI_API_TOKEN }}

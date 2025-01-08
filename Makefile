@@ -1,16 +1,19 @@
+PYTHONINCLUDEPATH := $(shell python3.10 -c "import sysconfig; print(sysconfig.get_path('include'))")
+
+PYTHONLIBPATH := $(shell python3.10 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")
 
 ifndef CONFIG
 	CONFIG=Release
 endif
 
 ifndef LIBDIR
-	LIBDIR=/usr/lib/
+	# LIBDIR=/usr/lib/
+	LIBDIR=$(shell python3.10 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")
 endif
 
 BUILD_DATE="$(shell date +'%Y %m %d %H %M')"
 
 PAID := 1
-
 
 VERSION := $(shell sh -c 'grep -oh -m 1 "VERSION=[0-9\.]*" standalone/builds/linux/Makefile | cut -d "=" -f 2')
 
@@ -106,19 +109,25 @@ effects_vst3:
 	$(MAKE) -C effects/builds/linux_vst VST3 CONFIG=$(CONFIG) AR=gcc-ar SIMDFLAGS="$(SIMDFLAGS)" GLFLAGS="$(GLFLAGS)" BUILD_DATE=$(BUILD_DATE)
 
 headless_server:
-	$(MAKE) -C headless/builds/linux CONFIG=$(CONFIG) SIMDFLAGS="$(SIMDFLAGS)" GLFLAGS="$(GLFLAGS)" BUILD_DATE=$(BUILD_DATE)
+	cd headless/builds/linux
+	ldconfig
+	cd ../../..
+	$(MAKE) VERBOSE=1 -C headless/builds/linux CONFIG=$(CONFIG) SIMDFLAGS="$(SIMDFLAGS)" GLFLAGS="$(GLFLAGS)" BUILD_DATE=$(BUILD_DATE) LIBS="-lstdc++fs" LDFLAGS="-L$(PYTHONLIBPATH)" CXXFLAGS="-I$(PYTHONINCLUDEPATH)"
+	cp headless/builds/linux/build/libvita.so tests/vita.so
+	strip --strip-unneeded tests/vita.so
+	cp tests/vita.so vita/vita.so
 
 test:
 	$(MAKE) -C tests/builds/linux CONFIG=$(CONFIG) SIMDFLAGS="$(SIMDFLAGS)" GLFLAGS="$(GLFLAGS)" BUILD_DATE=$(BUILD_DATE)
 
 clean:
-	$(MAKE) clean -C standalone/builds/linux CONFIG=$(CONFIG)
-	$(MAKE) clean -C plugin/builds/linux_vst CONFIG=$(CONFIG)
-	$(MAKE) clean -C plugin/builds/linux_lv2 CONFIG=$(CONFIG)
-	$(MAKE) clean -C effects/builds/linux_vst CONFIG=$(CONFIG)
-	$(MAKE) clean -C effects/builds/linux_lv2 CONFIG=$(CONFIG)
+	# $(MAKE) clean -C standalone/builds/linux CONFIG=$(CONFIG)
+	# $(MAKE) clean -C plugin/builds/linux_vst CONFIG=$(CONFIG)
+	# $(MAKE) clean -C plugin/builds/linux_lv2 CONFIG=$(CONFIG)
+	# $(MAKE) clean -C effects/builds/linux_vst CONFIG=$(CONFIG)
+	# $(MAKE) clean -C effects/builds/linux_lv2 CONFIG=$(CONFIG)
 	$(MAKE) clean -C headless/builds/linux CONFIG=$(CONFIG)
-	$(MAKE) clean -C tests/builds/linux CONFIG=$(CONFIG)
+	# $(MAKE) clean -C tests/builds/linux CONFIG=$(CONFIG)
 
 install_standalone: standalone install_icons
 	install -d $(BIN) $(MAN) $(CHANGES) $(DESKTOP)

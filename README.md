@@ -1,23 +1,82 @@
-# Vital
-Vital is a spectral warping wavetable synthesizer. This is the source.
+# Vita
 
-This repository is updated on a delay after binary releases.
+Vita is a Python module for interacting with the [Vital Synthesizer](https://github.com/mtytel/vital). **It is not an official product related to Vital**.
 
-## Code Licensing
+## Installation
+
+Vita is supported on Linux, macOS, and Windows. Install with `pip`:
+
+```bash
+pip install vita
+```
+
+## Example
+
+```python
+from scipy.io import wavfile
+import vita
+
+SAMPLE_RATE = 44_100
+
+bpm = 120.0
+note_dur = 1.0
+render_dur = 3.0
+pitch = 36  # integer
+velocity = 0.7  # [0.0 to 1.0]
+
+synth = vita.Synth()
+# The initial preset is loaded by default.
+
+synth.set_bpm(bpm)
+
+# Let's make a custom modulation using
+# the available modulation sources and destinations.
+# These lists are constant.
+print("potential sources:", vita.get_modulation_sources())
+print("potential destinations:", vita.get_modulation_destinations())
+
+# "lfo_1" and "filter_1_cutoff" are potential sources and destinations.
+assert synth.connect_modulation("lfo_1", "filter_1_cutoff")
+
+controls = synth.get_controls()
+controls["modulation_1_amount"].set(1.0)
+controls["filter_1_on"].set(1.0)
+controls["lfo_1_tempo"].set(vita.constants.SyncedFrequency.k1_16)
+
+# Render audio to numpy array shaped (2, NUM_SAMPLES)
+audio = synth.render(pitch, velocity, note_dur, render_dur)
+
+wavfile.write("generated_preset.wav", SAMPLE_RATE, audio.T)
+
+# Dump current state to JSON text
+preset_path = "generated_preset.vital"
+
+json_text = synth.to_json()
+with open(preset_path, "w") as f:
+    f.write(json_text)
+
+# Load JSON text
+with open(preset_path, "r") as f:
+    json_text = f.read()
+    assert synth.load_json(json_text)
+
+# Or load directly from file
+assert synth.load_preset(preset_path)
+
+# Load the initial preset, which also clears modulations
+synth.load_init_preset()
+# Or just clear modulations.
+synth.clear_modulations()
+```
+
+### Issues
+
+If you find any issues with the code, report them at https://github.com/DBraun/Vita.
+
+### Code Licensing
 If you are making a proprietary or closed source app and would like to use Vital's source code, contact licensing@vital.audio for non GPLv3 licensing options.
 
-## Installing
-Create an account and download Vital at [vital.audio](https://vital.audio)
-
-## Issues
-Report bugs (e.g.non-code and non-compiling issues) to https://forum.vital.audio
-
-Feel free to report issues on building/compiling here but note that I'm not prioritizing them.
-
-## Pull requests
-I will not take any pull requests.
-
-## What can you do with the source
+### What can you do with the source
 The source code is licensed under the GPLv3. If you download the source or create builds you must comply with that license.
 
 ### Things you can't do with this source

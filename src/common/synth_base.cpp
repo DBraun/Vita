@@ -26,6 +26,10 @@
 #include "synth_parameters.h"
 #include "utils.h"
 
+#include <iostream>
+#include <fstream>
+#include <filesystem>
+
 SynthBase::SynthBase() : expired_(false) {
   expired_ = LoadSave::isExpired();
   self_reference_ = std::make_shared<SynthBase*>();
@@ -186,6 +190,22 @@ bool SynthBase::connectModulation(const std::string& source, const std::string& 
 
   if (connection)
     connectModulation(connection);
+
+  return create;
+}
+
+bool SynthBase::pyConnectModulation(const std::string& source, const std::string& destination) {
+  vital::ModulationConnection* connection = getConnection(source, destination);
+  bool create = connection == nullptr;
+  if (create)
+    connection = getModulationBank().createConnection(source, destination);
+    
+  if (connection) {
+    connectModulation(connection);
+        
+    LineGenerator* map_generator = connection->modulation_processor->lineMapGenerator();
+    map_generator->initLinear(); // todo: allow more options via kwarg
+  }
 
   return create;
 }
@@ -380,7 +400,53 @@ bool SynthBase::loadFromFile(File preset, std::string& error) {
   return true;
 }
 
-void SynthBase::renderAudioToFile(File file, float seconds, float bpm, std::vector<int> notes, bool render_images) {
+bool SynthBase::pyLoadFromFile(std::string path) {
+  try {
+    File jsonFile(path);
+    std::string error;
+    bool result = loadFromFile(jsonFile, error);
+      if (!result) {
+          std::cerr << "Error: " << error << std::endl;
+      }
+    return result;
+  } catch (const std::exception& e) {
+    std::cerr << "Error: " << e.what() << '\n';
+  }
+  return false;
+}
+
+bool SynthBase::loadFromString(std::string json_text) {
+  std::string error;
+  try {
+    json parsed_json_state = json::parse(json_text, nullptr);
+    if (!loadFromJson(parsed_json_state)) {
+      error = "Preset was created with a newer version.";
+      return false;
+    }
+
+    //active_file_ = preset; // todo:
+  } catch (const json::exception& e) {
+    error = "Preset file is corrupted.";
+    return false;
+  }
+
+  //setPresetName(preset.getFileNameWithoutExtension()); // todo:
+
+  SynthGuiInterface* gui_interface = getGuiInterface();
+  if (gui_interface) {
+    gui_interface->updateFullGui();
+    gui_interface->notifyFresh();
+  }
+
+  return true;
+}
+
+void SynthBase::pySetBPM(float bpm) {
+    // todo: this is hopefully safe as a public method just for headless mode.
+    engine_->setBpm(bpm);
+};
+
+void SynthBase::renderAudioToFile(File file, std::vector<int> notes, float velocity, float note_dur, float render_dur, bool render_images) {
   static constexpr int kSampleRate = 44100;
   static constexpr int kPreProcessSamples = 44100;
   static constexpr int kFadeSamples = 200;
@@ -390,13 +456,14 @@ void SynthBase::renderAudioToFile(File file, float seconds, float bpm, std::vect
   static constexpr int kImageWidth = 500;
   static constexpr int kImageHeight = 250;
   static constexpr int kOscilloscopeResolution = 512;
-  static constexpr float kFadeRatio = 0.3f;
 
   ScopedLock lock(getCriticalSection());
 
+  engine_->allSoundsOff(); // note: dbraun added this
+
   processModulationChanges();
   engine_->setSampleRate(kSampleRate);
-  engine_->setBpm(bpm);
+//  engine_->setBpm(bpm);
   engine_->updateAllModulationSwitches();
 
   double sample_time = 1.0 / getSampleRate();
@@ -409,15 +476,15 @@ void SynthBase::renderAudioToFile(File file, float seconds, float bpm, std::vect
   }
 
   for (int note : notes)
-    engine_->noteOn(note, 0.7f, 0, 0);
+    engine_->noteOn(note, velocity, 0, 0);
 
   file.deleteFile();
   std::unique_ptr<FileOutputStream> file_stream = file.createOutputStream();
   WavAudioFormat wav_format;
   std::unique_ptr<AudioFormatWriter> writer(wav_format.createWriterFor(file_stream.get(), kSampleRate, 2, 16, {}, 0));
 
-  int on_samples = seconds * kSampleRate;
-  int total_samples = on_samples + seconds * kSampleRate * kFadeRatio;
+  int on_samples = note_dur * kSampleRate;
+  int total_samples = render_dur * kSampleRate;
   std::unique_ptr<float[]> left_buffer = std::make_unique<float[]>(kBufferSize);
   std::unique_ptr<float[]> right_buffer = std::make_unique<float[]>(kBufferSize);
   float* buffers[2] = { left_buffer.get(), right_buffer.get() };
@@ -504,6 +571,87 @@ void SynthBase::renderAudioToFile(File file, float seconds, float bpm, std::vect
   writer = nullptr;
   file_stream.release();
 }
+
+nb::ndarray<float, nb::shape<2, -1>, nb::numpy> SynthBase::renderAudioToNumpy(const int& midi_note, float velocity, float note_dur, float render_dur) {
+  static constexpr int kSampleRate = 44100;
+  static constexpr int kFadeSamples = 200;
+  static constexpr int kBufferSize = 64;
+  static constexpr int kPreProcessSamples = 256; // note: dbraun decreased this from 44100.
+
+  ScopedLock lock(getCriticalSection());
+
+  engine_->allSoundsOff();  // note: dbraun added this
+
+  processModulationChanges();
+  engine_->setSampleRate(kSampleRate);
+  engine_->updateAllModulationSwitches();
+
+  // Preprocess modulation
+  double sample_time = 1.0 / getSampleRate();
+  double current_time = -kPreProcessSamples * sample_time;
+
+  for (int samples = 0; samples < kPreProcessSamples; samples += kBufferSize) {
+    engine_->correctToTime(current_time);
+    current_time += kBufferSize * sample_time;
+    engine_->process(kBufferSize);
+  }
+
+  engine_->noteOn(midi_note, velocity, 0, 0);
+
+  int on_samples = note_dur * kSampleRate;
+  int total_samples = render_dur * kSampleRate;
+  const vital::mono_float* engine_output =
+      (const vital::mono_float*)engine_->output(0)->buffer;
+
+  size_t total_frames =
+      static_cast<size_t>(total_samples * 2);  // stereo: 2 channels
+
+  auto* data = new float[total_frames]();  // Zero-initialized
+  auto capsule = nb::capsule(
+      data, [](void* p) noexcept { delete[] static_cast<float*>(p); });
+
+  int baseSample = 0;
+
+  for (int samples = 0; samples < total_samples; samples += kBufferSize) {
+    engine_->correctToTime(current_time);
+    current_time += kBufferSize * sample_time;
+    engine_->process(kBufferSize);
+    updateMemoryOutput(kBufferSize, engine_->output(0)->buffer);
+
+    if (on_samples > samples && on_samples <= samples + kBufferSize) {
+      engine_->noteOff(midi_note, 0.5f, 0, 0);
+    }
+
+    for (int i = 0; i < kBufferSize; ++i) {
+      vital::mono_float t = (total_samples - samples) / (1.0f * kFadeSamples);
+      t = vital::utils::min(t, 1.0f);
+      baseSample = samples + i;
+      if (baseSample < total_samples) {
+        data[samples + i] = t * engine_output[vital::poly_float::kSize * i];
+        data[samples + i + total_samples] =
+            t * engine_output[vital::poly_float::kSize * i + 1];
+	  }
+    }
+  }
+
+  // Return the data as a NumPy array
+  return nb::ndarray<float, nb::shape<2, -1>, nb::numpy>(
+      data, {2, static_cast<size_t>(total_samples)}, capsule);
+}
+
+bool SynthBase::renderAudioToFile2(const std::string& output_path, const int& midi_note, float velocity, float note_dur, float render_dur) {
+    File output_file(output_path);
+    if (!output_file.hasWriteAccess()) {
+      std::cout << "Error: Don't have permission to write output file." << newLine;
+      return false;
+    }
+    bool render_images = false;
+    std::vector<int> midi_notes = {midi_note};
+    
+    renderAudioToFile(output_file, midi_notes, velocity, note_dur, render_dur, render_images);
+    return true;
+}
+
 
 void SynthBase::renderAudioForResynthesis(float* data, int samples, int note) {
   static constexpr int kPreProcessSamples = 44100;

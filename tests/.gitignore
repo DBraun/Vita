@@ -1,0 +1,3 @@
+tmp_*
+generated_preset*
+*.pyc

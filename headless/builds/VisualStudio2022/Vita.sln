@@ -1,0 +1,21 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 11.00
+# Visual Studio Version 17
+
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Vita - Dynamic Library", "Vita_DynamicLibrary.vcxproj", "{41660EB1-C0C6-734A-3560-3AAEEFA3048B}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|x64 = Debug|x64
+		Release|x64 = Release|x64
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{41660EB1-C0C6-734A-3560-3AAEEFA3048B}.Debug|x64.ActiveCfg = Debug|x64
+		{41660EB1-C0C6-734A-3560-3AAEEFA3048B}.Debug|x64.Build.0 = Debug|x64
+		{41660EB1-C0C6-734A-3560-3AAEEFA3048B}.Release|x64.ActiveCfg = Release|x64
+		{41660EB1-C0C6-734A-3560-3AAEEFA3048B}.Release|x64.Build.0 = Release|x64
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal
