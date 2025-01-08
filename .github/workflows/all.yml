@@ -201,7 +201,8 @@ jobs:
     needs: [build-windows, build-ubuntu, build-macos]
     runs-on: ubuntu-latest
     name: "Upload wheels to PyPI"
-    if: github.event_name == 'release' && github.event.action == 'published'
+    # if: github.event_name == 'release' && github.event.action == 'published'
+    if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - uses: actions/download-artifact@v4
         with:
