@@ -310,11 +310,21 @@ namespace vital {
     data["length"] = data_->length;
     data["sample_rate"] = data_->sample_rate;
     std::unique_ptr<int16_t[]> pcm_data = std::make_unique<int16_t[]>(data_->length);
-    utils::floatToPcmData(pcm_data.get(), data_->left_buffers[kUpsampleTimes].get(), data_->length);
+    // There was an issue where I was loading JSON "A" and immediately saving it to JSON "B" but A!=B.
+    // It turns out that this kBufferSamples offset was necessary to prevent this issue.
+    // todo: ask Matt Tytel
+    utils::floatToPcmData(pcm_data.get(),
+                         data_->left_buffers[kUpsampleTimes].get() + Sample::kBufferSamples,  // Add offset
+                         data_->length);
     String encoded = Base64::toBase64(pcm_data.get(), sizeof(int16_t) * data_->length);
     data["samples"] = encoded.toStdString();
     if (data_->stereo) {
-      utils::floatToPcmData(pcm_data.get(), data_->right_buffers[kUpsampleTimes].get(), data_->length);
+      // There was an issue where I was loading JSON "A" and immediately saving it to JSON "B" but A!=B.
+      // It turns out that this kBufferSamples offset was necessary to prevent this issue.
+      // todo: ask Matt Tytel
+      utils::floatToPcmData(pcm_data.get(),
+                             data_->right_buffers[kUpsampleTimes].get() + Sample::kBufferSamples,  // Add offset
+                             data_->length);
       String encoded_stereo = Base64::toBase64(pcm_data.get(), sizeof(int16_t) * data_->length);
       data["samples_stereo"] = encoded_stereo.toStdString();
     }
