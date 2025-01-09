@@ -36,6 +36,7 @@ print("potential sources:", vita.get_modulation_sources())
 print("potential destinations:", vita.get_modulation_destinations())
 
 # "lfo_1" and "filter_1_cutoff" are potential sources and destinations.
+# Let's use "lfo_1" as a source and "filter_1_cutoff" as a destination.
 assert synth.connect_modulation("lfo_1", "filter_1_cutoff")
 
 controls = synth.get_controls()
@@ -68,6 +69,8 @@ synth.load_init_preset()
 # Or just clear modulations.
 synth.clear_modulations()
 ```
+
+Documentation is not yet automated. Please browse [bindings.cpp](https://github.com/DBraun/Vita/blob/main/src/headless/bindings.cpp) to get a sense of how the code works.
 
 ### Issues
 
