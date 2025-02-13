@@ -379,6 +379,15 @@ NB_MODULE(vita, m) {
         .def(nb::init<>())  // Ensure there's a default constructor or adjust
                             // accordingly
                             // Bind the first overload of connectModulation
+
+        .def("__getstate__", [](HeadlessSynth &synth) {
+               return const_cast<HeadlessSynth &>(synth).pyToJson();  // Removes const safely
+        })
+        .def("__setstate__", [](HeadlessSynth &synth, const std::string &json) {
+             new (&synth) HeadlessSynth();
+             synth.loadFromString(json);
+        })
+
         .def("connect_modulation",
              nb::overload_cast<const std::string &, const std::string &>(
                  &HeadlessSynth::pyConnectModulation),

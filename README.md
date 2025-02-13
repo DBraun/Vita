@@ -1,6 +1,6 @@
 # Vita
 
-Vita is a Python module for interacting with the [Vital Synthesizer](https://github.com/mtytel/vital). **It is not an official product related to Vital**.
+Vita is a Python module for interacting with the [Vital Synthesizer](https://github.com/mtytel/vital). **It is not an official product related to Vital**. Vita uses [Effort-based versioning](https://jacobtomlinson.dev/effver/).
 
 ## Installation
 
@@ -35,8 +35,8 @@ synth.set_bpm(bpm)
 print("potential sources:", vita.get_modulation_sources())
 print("potential destinations:", vita.get_modulation_destinations())
 
-# "lfo_1" and "filter_1_cutoff" are potential sources and destinations.
-# Let's use "lfo_1" as a source and "filter_1_cutoff" as a destination.
+# "lfo_1" is a potential source,
+# and "filter_1_cutoff" is a potential destination.
 assert synth.connect_modulation("lfo_1", "filter_1_cutoff")
 
 controls = synth.get_controls()
@@ -53,13 +53,16 @@ wavfile.write("generated_preset.wav", SAMPLE_RATE, audio.T)
 preset_path = "generated_preset.vital"
 
 json_text = synth.to_json()
+
 with open(preset_path, "w") as f:
+    
     f.write(json_text)
 
 # Load JSON text
 with open(preset_path, "r") as f:
     json_text = f.read()
-    assert synth.load_json(json_text)
+
+assert synth.load_json(json_text)
 
 # Or load directly from file
 assert synth.load_preset(preset_path)

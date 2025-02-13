@@ -39,3 +39,4 @@ dataset
 *.egg-info*
 vita/LICENSE
 dist
+headless/builds/VisualStudio2022/x64

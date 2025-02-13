@@ -1,3 +1,7 @@
+# export LIBDIR=/usr/lib/python3.10
+# export PYTHONLIBPATH=/usr/lib/python3.10
+# export PYTHONINCLUDEPATH=/usr/include/python3.10
+
 echo "PYTHONLIBPATH: $PYTHONLIBPATH"
 echo "PYTHONINCLUDEPATH: $PYTHONINCLUDEPATH"
 echo "LIBDIR: $LIBDIR"
@@ -16,3 +20,6 @@ cd ../..
 make headless_server
 
 echo "build_linux.sh is done!"
+
+# to build a wheel:
+# python3 -m build --wheel
