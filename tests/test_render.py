@@ -53,8 +53,10 @@ def test_render(bpm=120.0, note_dur=1.0, render_dur=3.0, pitch=36, velocity=0.7)
 
     # Load JSON text
     with open(preset_path, "r") as f:
-        json_text = f.read()
-        assert synth.load_json(json_text)
+        json_text1 = f.read()
+        assert synth.load_json(json_text1)
+
+    assert json_text == json_text1
 
     # Or load directly from file:
     assert synth.load_preset(preset_path)
