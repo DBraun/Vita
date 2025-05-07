@@ -5,7 +5,7 @@
 # Then in the `dist` directory, `pip install vita`
 
 import setuptools
-from setuptools import setup, Extension
+from setuptools import setup
 from setuptools.dist import Distribution
 import os
 import os.path

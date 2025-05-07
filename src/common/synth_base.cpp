@@ -432,11 +432,12 @@ bool SynthBase::loadFromString(std::string json_text) {
 
   //setPresetName(preset.getFileNameWithoutExtension()); // todo:
 
-  SynthGuiInterface* gui_interface = getGuiInterface();
-  if (gui_interface) {
-    gui_interface->updateFullGui();
-    gui_interface->notifyFresh();
-  }
+  // note: dbraun commented this out since we're running headless anyway.
+  //SynthGuiInterface* gui_interface = getGuiInterface();
+  //if (gui_interface) {
+  //  gui_interface->updateFullGui();
+  //  gui_interface->notifyFresh();
+  //}
 
   return true;
 }
@@ -607,8 +608,7 @@ nb::ndarray<float, nb::shape<2, -1>, nb::numpy> SynthBase::renderAudioToNumpy(co
       static_cast<size_t>(total_samples * 2);  // stereo: 2 channels
 
   auto* data = new float[total_frames]();  // Zero-initialized
-  auto capsule = nb::capsule(
-      data, [](void* p) noexcept { delete[] static_cast<float*>(p); });
+  nb::capsule owner(data, [](void* p) noexcept { delete[] (float*)p; });
 
   int baseSample = 0;
 
@@ -636,7 +636,7 @@ nb::ndarray<float, nb::shape<2, -1>, nb::numpy> SynthBase::renderAudioToNumpy(co
 
   // Return the data as a NumPy array
   return nb::ndarray<float, nb::shape<2, -1>, nb::numpy>(
-      data, {2, static_cast<size_t>(total_samples)}, capsule);
+      data, {2, static_cast<size_t>(total_samples)}, owner);
 }
 
 bool SynthBase::renderAudioToFile2(const std::string& output_path, const int& midi_note, float velocity, float note_dur, float render_dur) {

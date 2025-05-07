@@ -18,6 +18,10 @@
 #include "value.h"
 #include "voice_handler.h"
 #include "wave_frame.h"
+#include <stdexcept>
+#include "synth_parameters.h"
+#include <cmath>
+#include <string>
 
 namespace nb = nanobind;
 using namespace vital;
@@ -100,6 +104,40 @@ nb::list get_modulation_sources() {
   return result;
 }
 
+// Get formatted display text for a control (with scaling & units).
+static std::string get_control_text(HeadlessSynth &synth, const std::string &name) {
+    auto &controls = synth.getControls();
+    auto it = controls.find(name);
+    if (it == controls.end())
+        throw std::runtime_error("No control: " + name);
+    mono_float raw = it->second->value();
+    const auto &details = Parameters::getDetails(name);
+    // Discrete/indexed parameters
+    if (details.string_lookup) {
+        int count = static_cast<int>(details.max - details.min + 1);
+        int idx = static_cast<int>(std::lround(raw - details.min));
+        if (idx < 0) idx = 0;
+        else if (idx >= count) idx = count - 1;
+        return details.string_lookup[idx];
+    }
+    // Continuous parameters: apply scaling
+    float skewed;
+    switch (details.value_scale) {
+    case ValueDetails::kQuadratic: skewed = raw * raw; break;
+    case ValueDetails::kCubic: skewed = raw * raw * raw; break;
+    case ValueDetails::kQuartic: skewed = raw * raw; skewed = skewed * skewed; break;
+    case ValueDetails::kExponential:
+        if (details.display_invert)
+            skewed = 1.0f / std::pow(2.0f, raw);
+        else
+            skewed = std::pow(2.0f, raw);
+        break;
+    case ValueDetails::kSquareRoot: skewed = std::sqrt(raw); break;
+    default: skewed = raw; break;
+    }
+    float display_val = details.display_multiply * skewed + details.post_offset;
+    return std::to_string(display_val) + details.display_units;
+}
 
 NB_MODULE(vita, m) {
 
@@ -112,17 +150,14 @@ NB_MODULE(vita, m) {
     auto m_constants = m.def_submodule("constants", "Submodule containing constants and enums");
     
     // Expose Enums
-    nb::enum_<constants::SourceDestination>(m_constants, "SourceDestination")
+    nb::enum_<constants::SourceDestination>(m_constants, "SourceDestination", nb::is_arithmetic())
         .value("Filter1", constants::SourceDestination::kFilter1)
         .value("Filter2", constants::SourceDestination::kFilter2)
         .value("DualFilters", constants::SourceDestination::kDualFilters)
         .value("Effects", constants::SourceDestination::kEffects)
-        .value("DirectOut", constants::SourceDestination::kDirectOut)
-        .def("__int__", [](constants::SourceDestination self) {
-          return static_cast<int>(self);
-        });
+        .value("DirectOut", constants::SourceDestination::kDirectOut);
 
-    nb::enum_<constants::Effect>(m_constants, "Effect")
+    nb::enum_<constants::Effect>(m_constants, "Effect", nb::is_arithmetic())
         .value("Chorus", constants::Effect::kChorus)
         .value("Compressor", constants::Effect::kCompressor)
         .value("Delay", constants::Effect::kDelay)
@@ -131,11 +166,9 @@ NB_MODULE(vita, m) {
         .value("FilterFx", constants::Effect::kFilterFx)
         .value("Flanger", constants::Effect::kFlanger)
         .value("Phaser", constants::Effect::kPhaser)
-        .value("Reverb", constants::Effect::kReverb)
-        .def("__int__",
-             [](constants::Effect self) { return static_cast<int>(self); });
+        .value("Reverb", constants::Effect::kReverb);
 
-    nb::enum_<constants::FilterModel>(m_constants, "FilterModel")
+    nb::enum_<constants::FilterModel>(m_constants, "FilterModel", nb::is_arithmetic())
         .value("Analog", constants::FilterModel::kAnalog)
         .value("Dirty", constants::FilterModel::kDirty)
         .value("Ladder", constants::FilterModel::kLadder)
@@ -143,20 +176,51 @@ NB_MODULE(vita, m) {
         .value("Diode", constants::FilterModel::kDiode)
         .value("Formant", constants::FilterModel::kFormant)
         .value("Comb", constants::FilterModel::kComb)
-        .value("Phase", constants::FilterModel::kPhase)
-        .def("__int__", [](constants::FilterModel self) {
-          return static_cast<int>(self);
-        });
+        .value("Phase", constants::FilterModel::kPhase);
 
-    nb::enum_<constants::RetriggerStyle>(m_constants, "RetriggerStyle")
+    nb::enum_<constants::RetriggerStyle>(m_constants, "RetriggerStyle", nb::is_arithmetic())
         .value("Free", constants::RetriggerStyle::kFree)
         .value("Retrigger", constants::RetriggerStyle::kRetrigger)
-        .value("SyncToPlayHead", constants::RetriggerStyle::kSyncToPlayHead)
-        .def("__int__", [](constants::RetriggerStyle self) {
-          return static_cast<int>(self);
+        .value("SyncToPlayHead", constants::RetriggerStyle::kSyncToPlayHead);
+
+    // Parameter value scaling types
+    nb::enum_<vital::ValueDetails::ValueScale>(m_constants, "ValueScale", nb::is_arithmetic())
+        .value("Indexed", vital::ValueDetails::kIndexed)
+        .value("Linear", vital::ValueDetails::kLinear)
+        .value("Quadratic", vital::ValueDetails::kQuadratic)
+        .value("Cubic", vital::ValueDetails::kCubic)
+        .value("Quartic", vital::ValueDetails::kQuartic)
+        .value("SquareRoot", vital::ValueDetails::kSquareRoot)
+        .value("Exponential", vital::ValueDetails::kExponential);
+
+    // ControlInfo provides metadata for each parameter
+    nb::class_<vital::ValueDetails>(m, "ControlInfo")
+        .def(nb::init<>())
+        .def_ro("name", &vital::ValueDetails::name)
+        .def_ro("min", &vital::ValueDetails::min)
+        .def_ro("max", &vital::ValueDetails::max)
+        .def_ro("default_value", &vital::ValueDetails::default_value)
+        .def_ro("version_added", &vital::ValueDetails::version_added)
+        .def_ro("post_offset", &vital::ValueDetails::post_offset)
+        .def_ro("display_multiply", &vital::ValueDetails::display_multiply)
+        .def_ro("scale", &vital::ValueDetails::value_scale)
+        .def_ro("display_units", &vital::ValueDetails::display_units)
+        .def_ro("display_name", &vital::ValueDetails::display_name)
+        .def_prop_ro("is_discrete",
+                     [](const vital::ValueDetails &d) {
+            return d.value_scale == vital::ValueDetails::kIndexed;
+        })
+        .def_prop_ro("options", [](const vital::ValueDetails &d) {
+            nb::list opts;
+            if (d.value_scale == vital::ValueDetails::kIndexed && d.string_lookup) {
+                int count = static_cast<int>(d.max - d.min + 1);
+                for (int i = 0; i < count; ++i)
+                    opts.append(std::string(d.string_lookup[i]));
+            }
+            return opts;
         });
 
-    nb::enum_<SynthOscillator::SpectralMorph>(m_constants, "SpectralMorph")
+    nb::enum_<SynthOscillator::SpectralMorph>(m_constants, "SpectralMorph", nb::is_arithmetic())
         .value("NoSpectralMorph", SynthOscillator::SpectralMorph::kNoSpectralMorph)
         .value("Vocode", SynthOscillator::SpectralMorph::kVocode)
         .value("FormScale", SynthOscillator::SpectralMorph::kFormScale)
@@ -168,12 +232,9 @@ NB_MODULE(vita, m) {
         .value("HighPass", SynthOscillator::SpectralMorph::kHighPass)
         .value("PhaseDisperse", SynthOscillator::SpectralMorph::kPhaseDisperse)
         .value("ShepardTone", SynthOscillator::SpectralMorph::kShepardTone)
-        .value("Skew", SynthOscillator::SpectralMorph::kSkew)
-        .def("__int__", [](SynthOscillator::SpectralMorph self) {
-          return static_cast<int>(self);
-        });
+        .value("Skew", SynthOscillator::SpectralMorph::kSkew);
     
-    nb::enum_<SynthOscillator::DistortionType>(m_constants, "DistortionType")
+    nb::enum_<SynthOscillator::DistortionType>(m_constants, "DistortionType", nb::is_arithmetic())
             .value("None", SynthOscillator::DistortionType::kNone)
             .value("Sync", SynthOscillator::DistortionType::kSync)
             .value("Formant", SynthOscillator::DistortionType::kFormant)
@@ -186,12 +247,9 @@ NB_MODULE(vita, m) {
             .value("FmSample", SynthOscillator::DistortionType::kFmSample)
             .value("RmOscillatorA", SynthOscillator::DistortionType::kRmOscillatorA)
             .value("RmOscillatorB", SynthOscillator::DistortionType::kRmOscillatorB)
-        .value("RmSample", SynthOscillator::DistortionType::kRmSample)
-        .def("__int__", [](SynthOscillator::DistortionType self) {
-          return static_cast<int>(self);
-        });
+        .value("RmSample", SynthOscillator::DistortionType::kRmSample);
         
-    nb::enum_<SynthOscillator::UnisonStackType>(m_constants, "UnisonStackType")
+    nb::enum_<SynthOscillator::UnisonStackType>(m_constants, "UnisonStackType", nb::is_arithmetic())
         .value("Normal", SynthOscillator::UnisonStackType::kNormal)
         .value("CenterDropOctave", SynthOscillator::UnisonStackType::kCenterDropOctave)
         .value("CenterDropOctave2", SynthOscillator::UnisonStackType::kCenterDropOctave2)
@@ -203,75 +261,54 @@ NB_MODULE(vita, m) {
         .value("MinorChord", SynthOscillator::UnisonStackType::kMinorChord)
         .value("HarmonicSeries", SynthOscillator::UnisonStackType::kHarmonicSeries)
         .value("OddHarmonicSeries",
-               SynthOscillator::UnisonStackType::kOddHarmonicSeries)
-        .def("__int__", [](SynthOscillator::UnisonStackType self) {
-          return static_cast<int>(self);
-        });
+               SynthOscillator::UnisonStackType::kOddHarmonicSeries);
     
-    nb::enum_<RandomLfo::RandomType>(m_constants, "RandomLFOStyle")
+    nb::enum_<RandomLfo::RandomType>(m_constants, "RandomLFOStyle", nb::is_arithmetic())
         .value("Perlin", RandomLfo::RandomType::kPerlin)
         .value("SampleAndHold", RandomLfo::RandomType::kSampleAndHold)
         .value("SinInterpolate", RandomLfo::RandomType::kSinInterpolate)
-        .value("LorenzAttractor", RandomLfo::RandomType::kLorenzAttractor)
-        .def("__int__",
-             [](RandomLfo::RandomType self) { return static_cast<int>(self); });
+        .value("LorenzAttractor", RandomLfo::RandomType::kLorenzAttractor);
 
-    nb::enum_<VoiceHandler::VoicePriority>(m_constants, "VoicePriority")
+    nb::enum_<VoiceHandler::VoicePriority>(m_constants, "VoicePriority", nb::is_arithmetic())
         .value("Newest", VoiceHandler::VoicePriority::kNewest)
         .value("Oldest", VoiceHandler::VoicePriority::kOldest)
         .value("Highest", VoiceHandler::VoicePriority::kHighest)
         .value("Lowest", VoiceHandler::VoicePriority::kLowest)
-        .value("RoundRobin", VoiceHandler::VoicePriority::kRoundRobin)
-        .def("__int__", [](VoiceHandler::VoicePriority self) {
-          return static_cast<int>(self);
-        });
+        .value("RoundRobin", VoiceHandler::VoicePriority::kRoundRobin);
     
-    nb::enum_<VoiceHandler::VoiceOverride>(m_constants, "VoiceOverride")
+    nb::enum_<VoiceHandler::VoiceOverride>(m_constants, "VoiceOverride", nb::is_arithmetic())
         .value("Kill",VoiceHandler::VoiceOverride::kKill)
-        .value("Steal", VoiceHandler::VoiceOverride::kSteal)
-        .def("__int__", [](VoiceHandler::VoiceOverride self) {
-          return static_cast<int>(self);
-        });
+        .value("Steal", VoiceHandler::VoiceOverride::kSteal);
 
-    nb::enum_<PredefinedWaveFrames::Shape>(m_constants, "WaveShape")
+    nb::enum_<PredefinedWaveFrames::Shape>(m_constants, "WaveShape", nb::is_arithmetic())
         .value("Sin", PredefinedWaveFrames::kSin)
         .value("SaturatedSin", PredefinedWaveFrames::kSaturatedSin)
         .value("Triangle", PredefinedWaveFrames::kTriangle)
         .value("Square", PredefinedWaveFrames::kSquare)
         .value("Pulse", PredefinedWaveFrames::kPulse)
-        .value("Saw", PredefinedWaveFrames::kSaw)
-        .def("__int__", [](PredefinedWaveFrames::Shape self) {
-          return static_cast<int>(self);
-        });
+        .value("Saw", PredefinedWaveFrames::kSaw);
 
-    nb::enum_<SynthLfo::SyncType>(m_constants, "SynthLFOSyncType")
+    nb::enum_<SynthLfo::SyncType>(m_constants, "SynthLFOSyncType", nb::is_arithmetic())
         .value("Trigger", SynthLfo::SyncType::kTrigger)
         .value("Sync", SynthLfo::SyncType::kSync)
         .value("Envelope", SynthLfo::SyncType::kEnvelope)
         .value("SustainEnvelope", SynthLfo::SyncType::kSustainEnvelope)
         .value("LoopPoint", SynthLfo::SyncType::kLoopPoint)
-        .value("LoopHold", SynthLfo::SyncType::kLoopHold)
-        .def("__int__",
-             [](SynthLfo::SyncType self) { return static_cast<int>(self); });
+        .value("LoopHold", SynthLfo::SyncType::kLoopHold);
     
-    nb::enum_<MultibandCompressor::BandOptions>(m_constants, "CompressorBandOption")
+    nb::enum_<MultibandCompressor::BandOptions>(m_constants, "CompressorBandOption", nb::is_arithmetic())
         .value("Multiband", MultibandCompressor::BandOptions::kMultiband)
         .value("LowBand", MultibandCompressor::BandOptions::kLowBand)
         .value("HighBand", MultibandCompressor::BandOptions::kHighBand)
-        .value("SingleBand", MultibandCompressor::BandOptions::kSingleBand)
-        .def("__int__", [](MultibandCompressor::BandOptions self) {
-          return static_cast<int>(self);
-        });
+        .value("SingleBand", MultibandCompressor::BandOptions::kSingleBand);
     
-    nb::enum_<SynthFilter::Style>(m_constants, "SynthFilterStyle")
+    nb::enum_<SynthFilter::Style>(m_constants, "SynthFilterStyle", nb::is_arithmetic())
         .value("k12Db", SynthFilter::Style::k12Db)
         .value("k24Db", SynthFilter::Style::k24Db)
         .value("NotchPassSwap", SynthFilter::Style::kNotchPassSwap)
         .value("DualNotchBand", SynthFilter::Style::kDualNotchBand)
         .value("BandPeakNotch", SynthFilter::Style::kBandPeakNotch)
-        .value("Shelving", SynthFilter::Style::kShelving)
-        .def("__int__",
-             [](SynthFilter::Style self) { return static_cast<int>(self); });
+        .value("Shelving", SynthFilter::Style::kShelving);
     
 //    https://github.com/mtytel/vital/blob/636ca0ef517a4db087a6a08a6a8a5e704e21f836/src/interface/look_and_feel/synth_strings.h#L174
     enum SyncedFrequencyName {
@@ -289,7 +326,7 @@ NB_MODULE(vita, m) {
         k1_64
     };
     
-    nb::enum_<SyncedFrequencyName>(m_constants, "SyncedFrequency")
+    nb::enum_<SyncedFrequencyName>(m_constants, "SyncedFrequency", nb::is_arithmetic())
         .value("k32_1", SyncedFrequencyName::k32_1)
         .value("k16_1", SyncedFrequencyName::k16_1)
         .value("k8_1", SyncedFrequencyName::k8_1)
@@ -301,9 +338,7 @@ NB_MODULE(vita, m) {
         .value("k1_8", SyncedFrequencyName::k1_8)
         .value("k1_16", SyncedFrequencyName::k1_16)
         .value("k1_32", SyncedFrequencyName::k1_32)
-        .value("k1_64", SyncedFrequencyName::k1_64)
-        .def("__int__",
-             [](SyncedFrequencyName self) { return static_cast<int>(self); });
+        .value("k1_64", SyncedFrequencyName::k1_64);
         
 //    https://github.com/mtytel/vital/blob/636ca0ef517a4db087a6a08a6a8a5e704e21f836/src/synthesis/modulators/synth_lfo.h#L58C1-L65C9
     enum SyncOption {
@@ -314,13 +349,12 @@ NB_MODULE(vita, m) {
         kKeytrack,
     };
     
-    nb::enum_<SyncOption>(m_constants, "SynthLFOSyncOption")
+    nb::enum_<SyncOption>(m_constants, "SynthLFOSyncOption", nb::is_arithmetic())
         .value("Time", SyncOption::kTime)
         .value("Tempo", SyncOption::kTempo)
         .value("DottedTempo", SyncOption::kDottedTempo)
         .value("TripletTempo", SyncOption::kTripletTempo)
-        .value("Keytrack", SyncOption::kKeytrack)
-        .def("__int__", [](SyncOption self) { return static_cast<int>(self); });
+        .value("Keytrack", SyncOption::kKeytrack);
 
     // Binding for poly_float
     nb::class_<vital::poly_float>(m, "poly_float")
@@ -417,7 +451,7 @@ NB_MODULE(vita, m) {
              "Returns:\n"
              "  bool: True if rendering was successful, False otherwise.")
 
-        .def("render", &HeadlessSynth::renderAudioToNumpy, nb::arg("midi_note"),
+        .def("render", &HeadlessSynth::renderAudioToNumpy, nb::call_guard<nb::gil_scoped_release>(), nb::arg("midi_note"),
              nb::arg("midi_velocity"), nb::arg("note_dur"),
              nb::arg("render_dur"),
              "Renders audio to a file.\n\n"
@@ -439,5 +473,14 @@ NB_MODULE(vita, m) {
         .def("load_init_preset", &HeadlessSynth::loadInitPreset, "Load the initial preset.")
     
         .def("clear_modulations", &HeadlessSynth::clearModulations)
-        .def("get_controls", &HeadlessSynth::getControls, nb::rv_policy::reference);
+        .def("get_controls", &HeadlessSynth::getControls, nb::rv_policy::reference)
+        .def("get_control_details", [](HeadlessSynth &synth, const std::string &name) {
+            // Validate control name
+            if (!vital::Parameters::isParameter(name))
+                throw std::runtime_error("No metadata for control: " + name);
+            // Return parameter metadata
+            return vital::Parameters::getDetails(name);
+        }, nb::arg("name"), "Get metadata for a control")
+        .def("get_control_text", get_control_text)
+        ;
 }
