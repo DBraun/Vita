@@ -15,7 +15,6 @@ from ..vita.constants import (
     SynthLFOSyncOption,
     SynthLFOSyncType,
     SyncedFrequency,
-    ValueScale,
 )
 
 __ALL__ = [
@@ -35,5 +34,4 @@ __ALL__ = [
     "SynthLFOSyncOption",
     "SynthLFOSyncType",
     "SyncedFrequency",
-    "ValueScale",
 ]

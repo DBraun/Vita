@@ -42,17 +42,7 @@ assert synth.connect_modulation("lfo_1", "filter_1_cutoff")
 controls = synth.get_controls()
 controls["modulation_1_amount"].set(1.0)
 controls["filter_1_on"].set(1.0)
-val = controls["filter_1_on"].value()
 controls["lfo_1_tempo"].set(vita.constants.SyncedFrequency.k1_16)
-
-# Use normalized parameter control (0-1 range, VST-style)
-controls["filter_1_cutoff"].set_normalized(0.5)  # Set knob to 50%
-print(controls["filter_1_cutoff"].get_normalized())  # Get normalized value
-
-# Get parameter details and display text
-info = synth.get_control_details("delay_style")
-print(f"Options: {info.options}")  # ["Mono", "Stereo", "Ping Pong", "Mid Ping Pong"]
-print(f"Current: {synth.get_control_text('delay_style')}")  # e.g., "Stereo"
 
 # Render audio to numpy array shaped (2, NUM_SAMPLES)
 audio = synth.render(pitch, velocity, note_dur, render_dur)
@@ -64,7 +54,8 @@ preset_path = "generated_preset.vital"
 
 json_text = synth.to_json()
 
-with open(preset_path, "w") as f:    
+with open(preset_path, "w") as f:
+    
     f.write(json_text)
 
 # Load JSON text

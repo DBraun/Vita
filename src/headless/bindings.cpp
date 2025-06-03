@@ -139,131 +139,6 @@ static std::string get_control_text(HeadlessSynth &synth, const std::string &nam
     return std::to_string(display_val) + details.display_units;
 }
 
-// Wrapper class for Value that knows its parameter name
-class ControlValue {
-private:
-    vital::Value* value_;
-    std::string name_;
-    HeadlessSynth* synth_;
-
-public:
-    ControlValue(vital::Value* value, const std::string& name, HeadlessSynth* synth)
-        : value_(value), name_(name), synth_(synth) {}
-
-    // Delegate existing Value methods
-    float value() const { return value_->value(); }
-    void set(double v) { value_->set(poly_float(static_cast<float>(v))); }
-    void set(int v) { value_->set(poly_float(static_cast<float>(v))); }
-    
-    // Normalized control methods
-    void set_normalized(double normalized) {
-        // Clamp to 0-1
-        normalized = std::max(0.0, std::min(1.0, normalized));
-        
-        const auto &details = Parameters::getDetails(name_);
-        float value;
-        
-        if (details.value_scale == ValueDetails::kIndexed) {
-            // For indexed parameters, quantize to discrete values
-            int num_options = static_cast<int>(details.max - details.min + 1);
-            int index = static_cast<int>(std::round(normalized * (num_options - 1)));
-            value = details.min + index;
-        } else {
-            // For non-linear parameters, normalized represents the display position
-            // We need to convert: normalized -> display value -> internal value
-            float value_normalized = static_cast<float>(normalized);
-            
-            switch (details.value_scale) {
-            case ValueDetails::kQuadratic:
-                // Display = internal^2, so internal = sqrt(display)
-                // normalized maps to display range
-                value = details.min + std::sqrt(value_normalized) * (details.max - details.min);
-                break;
-            case ValueDetails::kCubic:
-                // Display = internal^3, so internal = display^(1/3)
-                value = details.min + std::pow(value_normalized, 1.0f/3.0f) * (details.max - details.min);
-                break;
-            case ValueDetails::kQuartic: {
-                // VST behavior: knob position represents quartic of display position
-                // When knob is at 50%, we want display = 4 * 0.5^4 = 0.25 seconds
-                // Since display = internal^4 and max_display = max_internal^4
-                // We want internal = (normalized^4 * max_display)^(1/4) = normalized * max_internal
-                value = details.min + value_normalized * (details.max - details.min);
-                break;
-            }
-            case ValueDetails::kExponential:
-                // For exponential, normalized maps directly to the exponent
-                if (details.display_invert)
-                    value = details.min + (1.0f / std::pow(2.0f, value_normalized)) * (details.max - details.min);
-                else
-                    value = details.min + std::pow(2.0f, value_normalized) * (details.max - details.min);
-                break;
-            case ValueDetails::kSquareRoot:
-                // Display = sqrt(internal), so internal = display^2
-                value = details.min + (value_normalized * value_normalized) * (details.max - details.min);
-                break;
-            default: // Linear
-                value = details.min + value_normalized * (details.max - details.min);
-                break;
-            }
-        }
-        
-        value_->set(value);
-    }
-    
-    double get_normalized() const {
-        const auto &details = Parameters::getDetails(name_);
-        float raw = value_->value();
-        
-        if (details.value_scale == ValueDetails::kIndexed) {
-            // For indexed parameters, normalize based on index
-            int num_options = static_cast<int>(details.max - details.min + 1);
-            int index = static_cast<int>(std::round(raw - details.min));
-            return static_cast<double>(index) / (num_options - 1);
-        } else {
-            // Normalize to 0-1 range within parameter bounds
-            float normalized_internal = (raw - details.min) / (details.max - details.min);
-            float normalized;
-            
-            // Convert internal value to display position (0-1)
-            switch (details.value_scale) {
-            case ValueDetails::kQuadratic:
-                // Display = internal^2
-                normalized = normalized_internal * normalized_internal;
-                break;
-            case ValueDetails::kCubic:
-                // Display = internal^3
-                normalized = normalized_internal * normalized_internal * normalized_internal;
-                break;
-            case ValueDetails::kQuartic:
-                // VST behavior: normalized position = internal position
-                normalized = normalized_internal;
-                break;
-            case ValueDetails::kExponential:
-                // For exponential, need to account for the range
-                if (details.display_invert)
-                    normalized = -std::log2(normalized_internal + 1e-10f);
-                else
-                    normalized = std::log2(normalized_internal + 1e-10f);
-                break;
-            case ValueDetails::kSquareRoot:
-                // Display = sqrt(internal)
-                normalized = std::sqrt(normalized_internal);
-                break;
-            default: // Linear
-                normalized = normalized_internal;
-                break;
-            }
-            
-            return std::max(0.0, std::min(1.0, static_cast<double>(normalized)));
-        }
-    }
-    
-    std::string get_text() const {
-        return get_control_text(*synth_, name_);
-    }
-};
-
 NB_MODULE(vita, m) {
 
     m.def("get_modulation_sources", &get_modulation_sources,
@@ -533,18 +408,6 @@ NB_MODULE(vita, m) {
             return "<CRValue value=" + std::to_string(v.value()) + ">";
         });
     
-    // Bind the ControlValue wrapper class
-    nb::class_<ControlValue>(m, "ControlValue")
-        .def("value", &ControlValue::value)
-        .def("set", nb::overload_cast<double>(&ControlValue::set), nb::arg("value"))
-        .def("set", nb::overload_cast<int>(&ControlValue::set), nb::arg("value"))
-        .def("set_normalized", &ControlValue::set_normalized, nb::arg("value"),
-             "Set control value using normalized 0-1 range")
-        .def("get_normalized", &ControlValue::get_normalized,
-             "Get control value as normalized 0-1 range")
-        .def("get_text", &ControlValue::get_text,
-             "Get formatted display text for the control");
-    
     // Expose the SynthBase class, specifying ProcessorRouter as its base
     nb::class_<HeadlessSynth>(m, "Synth")
         .def(nb::init<>())  // Ensure there's a default constructor or adjust
@@ -610,14 +473,7 @@ NB_MODULE(vita, m) {
         .def("load_init_preset", &HeadlessSynth::loadInitPreset, "Load the initial preset.")
     
         .def("clear_modulations", &HeadlessSynth::clearModulations)
-        .def("get_controls", [](HeadlessSynth &synth) {
-            nb::dict result;
-            auto &controls = synth.getControls();
-            for (const auto &[name, value] : controls) {
-                result[name.c_str()] = ControlValue(value, name, &synth);
-            }
-            return result;
-        }, nb::rv_policy::reference_internal)
+        .def("get_controls", &HeadlessSynth::getControls, nb::rv_policy::reference)
         .def("get_control_details", [](HeadlessSynth &synth, const std::string &name) {
             // Validate control name
             if (!vital::Parameters::isParameter(name))

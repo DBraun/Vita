@@ -38,7 +38,6 @@ def test_render(bpm=120.0, note_dur=1.0, render_dur=3.0, pitch=36, velocity=0.7)
     controls = synth.get_controls()
     controls["modulation_1_amount"].set(1.0)
     controls["filter_1_on"].set(1.0)
-    assert 1.0 == controls["filter_1_on"].value()
     controls["lfo_1_tempo"].set(SyncedFrequency.k1_16)
 
     # Render audio to numpy array shaped (2, NUM_SAMPLES)
