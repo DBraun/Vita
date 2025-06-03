@@ -16,6 +16,7 @@
 
 #include "synth_base.h"
 
+#include <nanobind/nanobind.h>
 #include "sample_source.h"
 #include "sound_engine.h"
 #include "load_save.h"
@@ -432,11 +433,12 @@ bool SynthBase::loadFromString(std::string json_text) {
 
   //setPresetName(preset.getFileNameWithoutExtension()); // todo:
 
-  SynthGuiInterface* gui_interface = getGuiInterface();
-  if (gui_interface) {
-    gui_interface->updateFullGui();
-    gui_interface->notifyFresh();
-  }
+  // note: dbraun commented this out since we're running headless anyway.
+  //SynthGuiInterface* gui_interface = getGuiInterface();
+  //if (gui_interface) {
+  //  gui_interface->updateFullGui();
+  //  gui_interface->notifyFresh();
+  //}
 
   return true;
 }
@@ -578,6 +580,9 @@ nb::ndarray<float, nb::shape<2, -1>, nb::numpy> SynthBase::renderAudioToNumpy(co
   static constexpr int kBufferSize = 64;
   static constexpr int kPreProcessSamples = 256; // note: dbraun decreased this from 44100.
 
+  // Release GIL for the performance-critical section
+  // nb::gil_scoped_release gil_release;  // TODO:
+  
   ScopedLock lock(getCriticalSection());
 
   engine_->allSoundsOff();  // note: dbraun added this
@@ -607,8 +612,6 @@ nb::ndarray<float, nb::shape<2, -1>, nb::numpy> SynthBase::renderAudioToNumpy(co
       static_cast<size_t>(total_samples * 2);  // stereo: 2 channels
 
   auto* data = new float[total_frames]();  // Zero-initialized
-  auto capsule = nb::capsule(
-      data, [](void* p) noexcept { delete[] static_cast<float*>(p); });
 
   int baseSample = 0;
 
@@ -634,9 +637,15 @@ nb::ndarray<float, nb::shape<2, -1>, nb::numpy> SynthBase::renderAudioToNumpy(co
     }
   }
 
+  // Re-acquire GIL before creating numpy array
+  // nb::gil_scoped_acquire gil_acquire;  // TODO:
+  
+  // Create capsule with the data
+  nb::capsule owner(data, [](void* p) noexcept { delete[] (float*)p; });
+
   // Return the data as a NumPy array
   return nb::ndarray<float, nb::shape<2, -1>, nb::numpy>(
-      data, {2, static_cast<size_t>(total_samples)}, capsule);
+      data, {2, static_cast<size_t>(total_samples)}, owner);
 }
 
 bool SynthBase::renderAudioToFile2(const std::string& output_path, const int& midi_note, float velocity, float note_dur, float render_dur) {
