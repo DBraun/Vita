@@ -16,6 +16,7 @@
 
 #include "synth_base.h"
 
+#include <nanobind/nanobind.h>
 #include "sample_source.h"
 #include "sound_engine.h"
 #include "load_save.h"
@@ -579,6 +580,9 @@ nb::ndarray<float, nb::shape<2, -1>, nb::numpy> SynthBase::renderAudioToNumpy(co
   static constexpr int kBufferSize = 64;
   static constexpr int kPreProcessSamples = 256; // note: dbraun decreased this from 44100.
 
+  // Release GIL for the performance-critical section
+  nb::gil_scoped_release gil_release;
+  
   ScopedLock lock(getCriticalSection());
 
   engine_->allSoundsOff();  // note: dbraun added this
@@ -608,7 +612,6 @@ nb::ndarray<float, nb::shape<2, -1>, nb::numpy> SynthBase::renderAudioToNumpy(co
       static_cast<size_t>(total_samples * 2);  // stereo: 2 channels
 
   auto* data = new float[total_frames]();  // Zero-initialized
-  nb::capsule owner(data, [](void* p) noexcept { delete[] (float*)p; });
 
   int baseSample = 0;
 
@@ -633,6 +636,12 @@ nb::ndarray<float, nb::shape<2, -1>, nb::numpy> SynthBase::renderAudioToNumpy(co
 	  }
     }
   }
+
+  // Re-acquire GIL before creating numpy array
+  nb::gil_scoped_acquire gil_acquire;
+  
+  // Create capsule with the data
+  nb::capsule owner(data, [](void* p) noexcept { delete[] (float*)p; });
 
   // Return the data as a NumPy array
   return nb::ndarray<float, nb::shape<2, -1>, nb::numpy>(

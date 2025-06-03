@@ -588,7 +588,7 @@ NB_MODULE(vita, m) {
              "Returns:\n"
              "  bool: True if rendering was successful, False otherwise.")
 
-        .def("render", &HeadlessSynth::renderAudioToNumpy, nb::call_guard<nb::gil_scoped_release>(), nb::arg("midi_note"),
+        .def("render", &HeadlessSynth::renderAudioToNumpy, nb::arg("midi_note"),
              nb::arg("midi_velocity"), nb::arg("note_dur"),
              nb::arg("render_dur"),
              "Renders audio to a file.\n\n"
