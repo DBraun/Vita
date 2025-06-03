@@ -581,7 +581,7 @@ nb::ndarray<float, nb::shape<2, -1>, nb::numpy> SynthBase::renderAudioToNumpy(co
   static constexpr int kPreProcessSamples = 256; // note: dbraun decreased this from 44100.
 
   // Release GIL for the performance-critical section
-  nb::gil_scoped_release gil_release;
+  // nb::gil_scoped_release gil_release;  // TODO:
   
   ScopedLock lock(getCriticalSection());
 
@@ -638,7 +638,7 @@ nb::ndarray<float, nb::shape<2, -1>, nb::numpy> SynthBase::renderAudioToNumpy(co
   }
 
   // Re-acquire GIL before creating numpy array
-  nb::gil_scoped_acquire gil_acquire;
+  // nb::gil_scoped_acquire gil_acquire;  // TODO:
   
   // Create capsule with the data
   nb::capsule owner(data, [](void* p) noexcept { delete[] (float*)p; });
