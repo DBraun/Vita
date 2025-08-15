@@ -572,6 +572,7 @@ NB_MODULE(vita, m) {
              "Disconnects a modulation source from a destination by name.")
 
         .def("set_bpm", &HeadlessSynth::pySetBPM, nb::arg("bpm"))
+        .def("set_sample_rate", &HeadlessSynth::setSampleRate, nb::arg("sample_rate"))
 
         .def("render_file", &HeadlessSynth::renderAudioToFile2,
              nb::arg("output_path"), nb::arg("midi_note"),

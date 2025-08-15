@@ -20,15 +20,14 @@ from vita.constants import (
     SyncedFrequency,
 )
 
-SAMPLE_RATE = 44_100
 
-
-def test_render(bpm=120.0, note_dur=1.0, render_dur=3.0, pitch=36, velocity=0.7):
+def test_render(bpm=120.0, sample_rate=48000, note_dur=1.0, render_dur=3.0, pitch=36, velocity=0.7):
 
     synth = vita.Synth()
     # The initial preset is laoded by default.
 
     synth.set_bpm(bpm)
+    synth.set_sample_rate(sample_rate)
 
     assert vita.get_modulation_sources()
     assert vita.get_modulation_destinations()
@@ -43,8 +42,9 @@ def test_render(bpm=120.0, note_dur=1.0, render_dur=3.0, pitch=36, velocity=0.7)
 
     # Render audio to numpy array shaped (2, NUM_SAMPLES)
     audio = synth.render(pitch, velocity, note_dur, render_dur)
+    assert sample_rate == int(audio.shape[1] / render_dur) # assume int
 
-    wavfile.write("generated_preset.wav", SAMPLE_RATE, audio.T)
+    wavfile.write("generated_preset.wav", sample_rate, audio.T)
 
     # Dump current state to json text
     json_text = synth.to_json()

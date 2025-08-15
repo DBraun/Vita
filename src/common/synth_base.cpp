@@ -448,8 +448,13 @@ void SynthBase::pySetBPM(float bpm) {
     engine_->setBpm(bpm);
 };
 
+// src/plugin/synth_plugin.cpp Line 129-133 prepareToPlay
+void SynthBase::setSampleRate(double sample_rate) {
+  engine_->setSampleRate(sample_rate);
+  midi_manager_->setSampleRate(sample_rate);
+}
+
 void SynthBase::renderAudioToFile(File file, std::vector<int> notes, float velocity, float note_dur, float render_dur, bool render_images) {
-  static constexpr int kSampleRate = 44100;
   static constexpr int kPreProcessSamples = 44100;
   static constexpr int kFadeSamples = 200;
   static constexpr int kBufferSize = 64;
@@ -464,11 +469,11 @@ void SynthBase::renderAudioToFile(File file, std::vector<int> notes, float veloc
   engine_->allSoundsOff(); // note: dbraun added this
 
   processModulationChanges();
-  engine_->setSampleRate(kSampleRate);
 //  engine_->setBpm(bpm);
   engine_->updateAllModulationSwitches();
+  int kSampleRate = getSampleRate();
 
-  double sample_time = 1.0 / getSampleRate();
+  double sample_time = 1.0 / kSampleRate;
   double current_time = -kPreProcessSamples * sample_time;
 
   for (int samples = 0; samples < kPreProcessSamples; samples += kBufferSize) {
@@ -575,7 +580,6 @@ void SynthBase::renderAudioToFile(File file, std::vector<int> notes, float veloc
 }
 
 nb::ndarray<float, nb::shape<2, -1>, nb::numpy> SynthBase::renderAudioToNumpy(const int& midi_note, float velocity, float note_dur, float render_dur) {
-  static constexpr int kSampleRate = 44100;
   static constexpr int kFadeSamples = 200;
   static constexpr int kBufferSize = 64;
   static constexpr int kPreProcessSamples = 256; // note: dbraun decreased this from 44100.
@@ -588,11 +592,11 @@ nb::ndarray<float, nb::shape<2, -1>, nb::numpy> SynthBase::renderAudioToNumpy(co
   engine_->allSoundsOff();  // note: dbraun added this
 
   processModulationChanges();
-  engine_->setSampleRate(kSampleRate);
   engine_->updateAllModulationSwitches();
+  int kSampleRate = getSampleRate();
 
   // Preprocess modulation
-  double sample_time = 1.0 / getSampleRate();
+  double sample_time = 1.0 / kSampleRate;
   double current_time = -kPreProcessSamples * sample_time;
 
   for (int samples = 0; samples < kPreProcessSamples; samples += kBufferSize) {
