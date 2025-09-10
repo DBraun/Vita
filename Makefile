@@ -1,6 +1,8 @@
-PYTHONINCLUDEPATH := $(shell python3.10 -c "import sysconfig; print(sysconfig.get_path('include'))")
+PYTHON := $(shell which python)
 
-PYTHONLIBPATH := $(shell python3.10 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")
+PYTHONINCLUDEPATH := $(shell $(PYTHON) -c "import sysconfig; print(sysconfig.get_path('include'))")
+
+PYTHONLIBPATH := $(shell $(PYTHON) -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")
 
 ifndef CONFIG
 	CONFIG=Release
@@ -8,7 +10,7 @@ endif
 
 ifndef LIBDIR
 	# LIBDIR=/usr/lib/
-	LIBDIR=$(shell python3.10 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")
+	LIBDIR=$(shell $(PYTHON) -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")
 endif
 
 BUILD_DATE="$(shell date +'%Y %m %d %H %M')"

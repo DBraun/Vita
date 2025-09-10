@@ -139,6 +139,7 @@ class SynthBase : public MidiManager::Listener {
     Tuning* getTuning() { return &tuning_; }
     
     void pySetBPM(float bpm);
+    void setSampleRate(double sample_rate);
 
     struct ValueChangedCallback : public CallbackMessage {
       ValueChangedCallback(std::shared_ptr<SynthBase*> listener, std::string name, vital::mono_float val) :

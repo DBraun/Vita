@@ -16,8 +16,7 @@ pip install vita
 from scipy.io import wavfile
 import vita
 
-SAMPLE_RATE = 44_100
-
+sample_rate = 44100
 bpm = 120.0
 note_dur = 1.0
 render_dur = 3.0
@@ -27,6 +26,7 @@ velocity = 0.7  # [0.0 to 1.0]
 synth = vita.Synth()
 # The initial preset is loaded by default.
 
+synth.set_sample_rate(sample_rate)
 synth.set_bpm(bpm)
 
 # Let's make a custom modulation using
@@ -57,7 +57,7 @@ print(f"Current: {synth.get_control_text('delay_style')}")  # e.g., "Stereo"
 # Render audio to numpy array shaped (2, NUM_SAMPLES)
 audio = synth.render(pitch, velocity, note_dur, render_dur)
 
-wavfile.write("generated_preset.wav", SAMPLE_RATE, audio.T)
+wavfile.write("generated_preset.wav", sample_rate, audio.T)
 
 # Dump current state to JSON text
 preset_path = "generated_preset.vital"
