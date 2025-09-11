@@ -1,3 +1,68 @@
 [build-system]
-requires = ["setuptools", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = [
+    "scikit-build-core>=0.10",
+    "nanobind>=2.0.0"
+]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "vita"
+version = "0.0.3"
+description = "Python bindings for the Vital synthesizer"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "GPL-3.0"}
+authors = [
+    {name = "David Braun", email = "braun@ccrma.stanford.edu"}
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: C++",
+    "Programming Language :: Python",
+    "Topic :: Multimedia :: Sound/Audio",
+    "Topic :: Multimedia :: Sound/Audio :: Sound Synthesis",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13"
+]
+keywords = ["audio", "music", "sound", "synthesizer", "vital", "fm"]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/DBraun/Vita"
+Documentation = "https://dirt.design/Vita"
+Source = "https://github.com/DBraun/Vita"
+Tracker = "https://github.com/DBraun/Vita/issues"
+
+[tool.scikit-build]
+# Require CMake 3.15+
+cmake.version = ">=3.15"
+# Build in Release mode by default
+cmake.build-type = "Release"
+# Build the shared library
+build.targets = ["_vita"]
+# Install the Python module
+install.components = ["python_modules"]
+# Enable verbose builds for debugging (use build.verbose for scikit-build-core >= 0.10)
+build.verbose = false
+# Ensure source distributions include submodules
+sdist.include = ["third_party/nanobind/**", "third_party/JUCE/**", "third_party/VST_SDK/**"]
+
+[tool.scikit-build.cmake.define]
+CMAKE_POSITION_INDEPENDENT_CODE = "ON"
+
+[tool.cibuildwheel]
+# Ensure Python executable is passed to the build script
+environment = { PYTHON = "python" }
+# Build for Python 3.11, 3.12, 3.13
+build = "cp311-* cp312-* cp313-*"
+# Skip 32-bit builds
+skip = "*-win32 *-musllinux_i686 *i686"
+# Test that the module can be imported
+test-requires = "pytest numpy"
+test-command = "python -c \"import vita; print(vita.__version__)\""

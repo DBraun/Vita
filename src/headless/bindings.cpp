@@ -264,7 +264,7 @@ public:
     }
 };
 
-NB_MODULE(vita, m) {
+NB_MODULE(_vita, m) {
 
     m.def("get_modulation_sources", &get_modulation_sources,
 		"Returns a list of allowed modulation sources.");
