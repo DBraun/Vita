@@ -82,6 +82,37 @@ synth.load_init_preset()
 synth.clear_modulations()
 ```
 
+### Parallel rendering with threads
+
+Vita releases the Python GIL during the DSP-heavy work of `render`, `render_file`,
+`load_preset`, `load_json`, and `to_json`. This means you can render many presets
+in true parallel with a `ThreadPoolExecutor` instead of `multiprocessing` -- no
+process-spawn or pickling overhead, shared memory, and (importantly) no `fork()`,
+so it works even after importing thread-spawning libraries like JAX where a
+`fork()`-based pool would crash.
+
+Give **each thread its own `vita.Synth`**. A single `Synth` must not be shared
+across threads: its per-instance critical section would serialize concurrent
+renders, and its engine state is not meant to be mutated from multiple threads at
+once. See [`examples/multithreading_presets`](examples/multithreading_presets).
+
+```python
+from concurrent.futures import ThreadPoolExecutor
+import threading, vita
+
+_local = threading.local()
+
+def render_preset(path):
+    synth = getattr(_local, "synth", None)
+    if synth is None:
+        synth = _local.synth = vita.Synth()  # one Synth per worker thread
+    synth.load_preset(path)
+    return synth.render(60, 100, 1.0, 2.0)
+
+with ThreadPoolExecutor(max_workers=8) as pool:
+    audios = list(pool.map(render_preset, preset_paths))
+```
+
 Documentation is not yet automated. Please browse [bindings.cpp](https://github.com/DBraun/Vita/blob/main/src/headless/bindings.cpp) to get a sense of how the code works.
 
 ### Issues

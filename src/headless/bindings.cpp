@@ -575,6 +575,11 @@ NB_MODULE(vita, m) {
         .def("set_sample_rate", &HeadlessSynth::setSampleRate, nb::arg("sample_rate"))
 
         .def("render_file", &HeadlessSynth::renderAudioToFile2,
+             // The whole function is pure C++ DSP + file I/O (no Python or
+             // nanobind objects), so release the GIL for its entire duration.
+             // nanobind converts the Python args before the guard releases the
+             // GIL and converts the bool return after it re-acquires the GIL.
+             nb::call_guard<nb::gil_scoped_release>(),
              nb::arg("output_path"), nb::arg("midi_note"),
              nb::arg("midi_velocity"), nb::arg("note_dur"),
              nb::arg("render_dur"),
@@ -602,11 +607,18 @@ NB_MODULE(vita, m) {
              "Returns:\n"
              "  bool: True if rendering was successful, False otherwise.")
 
-        .def("load_json", &HeadlessSynth::loadFromString, nb::arg("json"))
+        // load_json / to_json / load_preset only parse or serialize JSON and
+        // mutate C++/Vital state -- no Python or nanobind objects touched while
+        // working -- so release the GIL for the whole call. nanobind converts
+        // the std::string arg/return on the GIL-held side of the guard.
+        .def("load_json", &HeadlessSynth::loadFromString,
+             nb::call_guard<nb::gil_scoped_release>(), nb::arg("json"))
 
-        .def("to_json", &HeadlessSynth::pyToJson)
-    
-        .def("load_preset", &HeadlessSynth::pyLoadFromFile, nb::arg("filepath"))
+        .def("to_json", &HeadlessSynth::pyToJson,
+             nb::call_guard<nb::gil_scoped_release>())
+
+        .def("load_preset", &HeadlessSynth::pyLoadFromFile,
+             nb::call_guard<nb::gil_scoped_release>(), nb::arg("filepath"))
     
         .def("load_init_preset", &HeadlessSynth::loadInitPreset, "Load the initial preset.")
     

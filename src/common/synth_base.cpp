@@ -584,66 +584,79 @@ nb::ndarray<float, nb::shape<2, -1>, nb::numpy> SynthBase::renderAudioToNumpy(co
   static constexpr int kBufferSize = 64;
   static constexpr int kPreProcessSamples = 256; // note: dbraun decreased this from 44100.
 
-  // Release GIL for the performance-critical section
-  // nb::gil_scoped_release gil_release;  // TODO:
-  
-  ScopedLock lock(getCriticalSection());
+  // These are populated by the GIL-released DSP region below and consumed
+  // afterward (with the GIL held) to build the returned numpy array.
+  float* data = nullptr;
+  int total_samples = 0;
 
-  engine_->allSoundsOff();  // note: dbraun added this
+  {
+    // Release the GIL for the performance-critical DSP render. Everything in
+    // this scope touches only C++/JUCE/Vital state and a plain heap buffer --
+    // no Python or nanobind objects -- so it is safe to run without the GIL.
+    // This lets N Python threads, each owning its OWN Synth, render in true
+    // parallel (no fork, no pickling, shared memory). Each thread MUST use a
+    // separate Synth instance: the ScopedLock below only serializes access to
+    // *this* instance's critical section, so a Synth shared across threads
+    // would serialize here and gain nothing. The RAII guard re-acquires the
+    // GIL on every exit path, including exceptions unwinding out of the block.
+    nb::gil_scoped_release gil_release;
 
-  processModulationChanges();
-  engine_->updateAllModulationSwitches();
-  int kSampleRate = getSampleRate();
+    ScopedLock lock(getCriticalSection());
 
-  // Preprocess modulation
-  double sample_time = 1.0 / kSampleRate;
-  double current_time = -kPreProcessSamples * sample_time;
+    engine_->allSoundsOff();  // note: dbraun added this
 
-  for (int samples = 0; samples < kPreProcessSamples; samples += kBufferSize) {
-    engine_->correctToTime(current_time);
-    current_time += kBufferSize * sample_time;
-    engine_->process(kBufferSize);
-  }
+    processModulationChanges();
+    engine_->updateAllModulationSwitches();
+    int kSampleRate = getSampleRate();
 
-  engine_->noteOn(midi_note, velocity, 0, 0);
+    // Preprocess modulation
+    double sample_time = 1.0 / kSampleRate;
+    double current_time = -kPreProcessSamples * sample_time;
 
-  int on_samples = note_dur * kSampleRate;
-  int total_samples = render_dur * kSampleRate;
-  const vital::mono_float* engine_output =
-      (const vital::mono_float*)engine_->output(0)->buffer;
-
-  size_t total_frames =
-      static_cast<size_t>(total_samples * 2);  // stereo: 2 channels
-
-  auto* data = new float[total_frames]();  // Zero-initialized
-
-  int baseSample = 0;
-
-  for (int samples = 0; samples < total_samples; samples += kBufferSize) {
-    engine_->correctToTime(current_time);
-    current_time += kBufferSize * sample_time;
-    engine_->process(kBufferSize);
-    updateMemoryOutput(kBufferSize, engine_->output(0)->buffer);
-
-    if (on_samples > samples && on_samples <= samples + kBufferSize) {
-      engine_->noteOff(midi_note, 0.5f, 0, 0);
+    for (int samples = 0; samples < kPreProcessSamples; samples += kBufferSize) {
+      engine_->correctToTime(current_time);
+      current_time += kBufferSize * sample_time;
+      engine_->process(kBufferSize);
     }
 
-    for (int i = 0; i < kBufferSize; ++i) {
-      vital::mono_float t = (total_samples - samples) / (1.0f * kFadeSamples);
-      t = vital::utils::min(t, 1.0f);
-      baseSample = samples + i;
-      if (baseSample < total_samples) {
-        data[samples + i] = t * engine_output[vital::poly_float::kSize * i];
-        data[samples + i + total_samples] =
-            t * engine_output[vital::poly_float::kSize * i + 1];
-	  }
+    engine_->noteOn(midi_note, velocity, 0, 0);
+
+    int on_samples = note_dur * kSampleRate;
+    total_samples = render_dur * kSampleRate;
+    const vital::mono_float* engine_output =
+        (const vital::mono_float*)engine_->output(0)->buffer;
+
+    size_t total_frames =
+        static_cast<size_t>(total_samples * 2);  // stereo: 2 channels
+
+    data = new float[total_frames]();  // Zero-initialized
+
+    int baseSample = 0;
+
+    for (int samples = 0; samples < total_samples; samples += kBufferSize) {
+      engine_->correctToTime(current_time);
+      current_time += kBufferSize * sample_time;
+      engine_->process(kBufferSize);
+      updateMemoryOutput(kBufferSize, engine_->output(0)->buffer);
+
+      if (on_samples > samples && on_samples <= samples + kBufferSize) {
+        engine_->noteOff(midi_note, 0.5f, 0, 0);
+      }
+
+      for (int i = 0; i < kBufferSize; ++i) {
+        vital::mono_float t = (total_samples - samples) / (1.0f * kFadeSamples);
+        t = vital::utils::min(t, 1.0f);
+        baseSample = samples + i;
+        if (baseSample < total_samples) {
+          data[samples + i] = t * engine_output[vital::poly_float::kSize * i];
+          data[samples + i + total_samples] =
+              t * engine_output[vital::poly_float::kSize * i + 1];
+        }
+      }
     }
   }
+  // GIL re-acquired here (RAII) before any Python interaction below.
 
-  // Re-acquire GIL before creating numpy array
-  // nb::gil_scoped_acquire gil_acquire;  // TODO:
-  
   // Create capsule with the data
   nb::capsule owner(data, [](void* p) noexcept { delete[] (float*)p; });
 
