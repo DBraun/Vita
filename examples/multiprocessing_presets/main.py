@@ -30,7 +30,7 @@ class Worker:
         render_duration: float = 5.0,
         pitch_low: int = 60,
         pitch_high: int = 72,
-        velocity: int = 100,
+        velocity: float = 0.7,
         output_dir="output",
     ):
         self.queue = queue
@@ -53,7 +53,7 @@ class Worker:
 
         for pitch in range(self.pitch_low, self.pitch_high + 1):
             audio = self.synth.render(
-                pitch, self.velocity, self.note_duration, self.note_duration
+                pitch, self.velocity, self.note_duration, self.render_duration
             )
             output_path = self.output_dir / f"{pitch}_{basename}.wav"
             wavfile.write(str(output_path), 44_100, audio.transpose())

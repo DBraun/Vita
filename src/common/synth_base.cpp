@@ -351,25 +351,22 @@ void SynthBase::loadTuningFile(const File& file) {
 }
 
 void SynthBase::loadInitPreset() {
-  pauseProcessing(true);
+  ScopedProcessingPause pause(this);
   engine_->allSoundsOff();
   initEngine();
   LoadSave::initSaveInfo(save_info_);
-  pauseProcessing(false);
 }
 
 bool SynthBase::loadFromJson(const json& data) {
-  pauseProcessing(true);
+  // RAII rather than a manual pauseProcessing(true)/(false) pair: any exception
+  // escaping jsonToState (not just json::exception) must still resume
+  // processing. On the headless and standalone synths pauseProcessing holds a
+  // CriticalSection, so leaving it paused would deadlock the next render() on
+  // this Synth -- and since render() drops the GIL, that deadlock would be an
+  // uninterruptible hang rather than a Python-level error.
+  ScopedProcessingPause pause(this);
   engine_->allSoundsOff();
-  try {
-    bool result = LoadSave::jsonToState(this, save_info_, data);
-    pauseProcessing(false);
-    return result;
-  }
-  catch (const json::exception& e) {
-    pauseProcessing(false);
-    throw e;
-  }
+  return LoadSave::jsonToState(this, save_info_, data);
 }
 
 bool SynthBase::loadFromFile(File preset, std::string& error) {
@@ -585,8 +582,11 @@ nb::ndarray<float, nb::shape<2, -1>, nb::numpy> SynthBase::renderAudioToNumpy(co
   static constexpr int kPreProcessSamples = 256; // note: dbraun decreased this from 44100.
 
   // These are populated by the GIL-released DSP region below and consumed
-  // afterward (with the GIL held) to build the returned numpy array.
-  float* data = nullptr;
+  // afterward (with the GIL held) to build the returned numpy array. The buffer
+  // is owned by a unique_ptr for the duration of the render so that an exception
+  // unwinding out of the DSP loop frees it; ownership is handed to the capsule
+  // below only once we are sure we can return.
+  std::unique_ptr<float[]> data;
   int total_samples = 0;
 
   {
@@ -629,7 +629,7 @@ nb::ndarray<float, nb::shape<2, -1>, nb::numpy> SynthBase::renderAudioToNumpy(co
     size_t total_frames =
         static_cast<size_t>(total_samples * 2);  // stereo: 2 channels
 
-    data = new float[total_frames]();  // Zero-initialized
+    data = std::make_unique<float[]>(total_frames);  // Zero-initialized
 
     int baseSample = 0;
 
@@ -657,12 +657,15 @@ nb::ndarray<float, nb::shape<2, -1>, nb::numpy> SynthBase::renderAudioToNumpy(co
   }
   // GIL re-acquired here (RAII) before any Python interaction below.
 
-  // Create capsule with the data
-  nb::capsule owner(data, [](void* p) noexcept { delete[] (float*)p; });
+  // Create capsule with the data. Constructing the capsule is the point of no
+  // return: if it succeeds it owns the buffer, so only release the unique_ptr
+  // afterwards.
+  nb::capsule owner(data.get(), [](void* p) noexcept { delete[] (float*)p; });
+  float* raw_data = data.release();
 
   // Return the data as a NumPy array
   return nb::ndarray<float, nb::shape<2, -1>, nb::numpy>(
-      data, {2, static_cast<size_t>(total_samples)}, owner);
+      raw_data, {2, static_cast<size_t>(total_samples)}, owner);
 }
 
 bool SynthBase::renderAudioToFile2(const std::string& output_path, const int& midi_note, float velocity, float note_dur, float render_dur) {
@@ -922,10 +925,9 @@ vital::ModulationConnectionBank& SynthBase::getModulationBank() {
 }
 
 void SynthBase::notifyOversamplingChanged() {
-  pauseProcessing(true);
+  ScopedProcessingPause pause(this);
   engine_->allSoundsOff();
   checkOversampling();
-  pauseProcessing(false);
 }
 
 void SynthBase::checkOversampling() {

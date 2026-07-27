@@ -40,7 +40,8 @@ class ThreadRenderer:
         render_duration: float = 5.0,
         pitch_low: int = 60,
         pitch_high: int = 72,
-        velocity: int = 100,
+        velocity: float = 0.7,
+        sample_rate: int = 44_100,
         output_dir: str = "output",
     ):
         self.bpm = bpm
@@ -48,6 +49,7 @@ class ThreadRenderer:
         self.render_duration = render_duration
         self.pitch_low, self.pitch_high = pitch_low, pitch_high
         self.velocity = velocity
+        self.sample_rate = sample_rate
         self.output_dir = Path(output_dir)
         # Each worker thread lazily builds and reuses its own Synth here.
         self._local = threading.local()
@@ -57,6 +59,7 @@ class ThreadRenderer:
         if synth is None:
             synth = vita.Synth()
             synth.set_bpm(self.bpm)
+            synth.set_sample_rate(self.sample_rate)
             self._local.synth = synth
         return synth
 
@@ -69,7 +72,7 @@ class ThreadRenderer:
                 pitch, self.velocity, self.note_duration, self.render_duration
             )
             output_path = self.output_dir / f"{pitch}_{basename}.wav"
-            wavfile.write(str(output_path), 44_100, audio.transpose())
+            wavfile.write(str(output_path), self.sample_rate, audio.transpose())
 
     def run(self, preset_paths, num_workers: int) -> None:
         with ThreadPoolExecutor(max_workers=num_workers) as pool:

@@ -174,13 +174,14 @@ namespace vital {
   class FFT {
     public:
       static FourierTransform* transform() {
-        // thread_local (not a plain static singleton): a FourierTransform owns
-        // a mutable scratch buffer and stateful FFT engine, so a single shared
-        // instance would be corrupted by concurrent transforms. Wavetable /
-        // spectral-morph work runs during rendering, so with one Synth per
-        // render thread each thread needs its own transform. thread_local gives
-        // every thread its own lazily-constructed instance; single-threaded use
-        // is unchanged.
+        // thread_local (not a plain static singleton). Two of the four
+        // FourierTransform backends above -- IPP and kissfft -- keep a mutable
+        // scratch buffer in the object, so a shared instance would be corrupted
+        // by concurrent transforms. (The juce_dsp and Accelerate backends are
+        // already reentrant.) Wavetable / spectral-morph work runs during
+        // rendering, so with one Synth per render thread each thread needs its
+        // own transform. thread_local gives every thread its own lazily
+        // constructed instance; single-threaded use is unchanged.
         thread_local FFT<bits> instance;
         return &instance.fourier_transform_;
       }

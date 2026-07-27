@@ -1,3 +1,32 @@
 [build-system]
 requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[tool.cibuildwheel]
+# setup.py compiles the extension as part of building the wheel, so there is no
+# before-build hook: `pip install .` and `python -m build` work on their own.
+# The build identifier is chosen per matrix entry.
+build-frontend = "build"
+archs = ["auto64"]
+test-requires = "-r test-requirements.txt"
+# test-sources copies these into the temporary test directory, so pytest imports
+# the *installed wheel* rather than the source tree next to it.
+test-sources = ["tests"]
+test-command = "python -m pytest -v tests"
+
+[tool.cibuildwheel.linux]
+# manylinux_2_28 (cibuildwheel's default since v3) rather than manylinux2014:
+# NumPy and SciPy no longer publish manylinux2014 wheels for current Python
+# versions, so the test dependencies would otherwise be built from source and
+# fail on the missing OpenBLAS.
+manylinux-x86_64-image = "manylinux_2_28"
+manylinux-aarch64-image = "manylinux_2_28"
+repair-wheel-command = "pip install auditwheel-symbols && (auditwheel repair -w {dest_dir} {wheel} || auditwheel-symbols --manylinux 2_28 {wheel})"
+
+[tool.cibuildwheel.windows]
+# The extension has no DLL dependencies beyond the system ones, so skip
+# cibuildwheel 4's default delvewheel repair.
+repair-wheel-command = ""
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
