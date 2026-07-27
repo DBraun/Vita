@@ -1,11 +1,11 @@
 # Changelog
 
+<!-- changelog-start -->
+
 All notable changes to this project are documented here.
 
-The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
-this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-
-<!-- changelog-start -->
+This project adheres to [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/)
+and to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
@@ -72,8 +72,11 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   only nominally: `None` is a Python keyword, so `DistortionType.None` was a
   syntax error and the member could only ever be reached through
   `getattr(DistortionType, "None")`.
-- macOS x86-64 wheels. The `macos-13` runner image is retired, and those CI jobs
-  no longer start.
+- macOS x86-64 wheels, so **Intel Macs are no longer supported**. The
+  `macos-13` runner image is retired and those CI jobs no longer start. There is
+  no source distribution to fall back on, so `pip install vita` fails with "no
+  matching distribution found" on an Intel Mac; stay on 0.0.5 there. Apple
+  silicon, Linux x86-64 and Windows x86-64 are unaffected.
 - `librosa` from the test requirements; nothing used it, and it was the main
   source of dependency-resolution failures on new Python versions.
 
