@@ -1,0 +1,27 @@
+# Pattern file for nanobind's stub generator (see setup.py).
+#
+# These rewrite generated signatures that are accurate about the C++ side but
+# that a type checker reads as contradictory. Runtime behaviour is untouched.
+
+# Value.set / CRValue.set are registered with an enum overload as well as int
+# and float. SyncedFrequency is an IntEnum, so it is already a subtype of int,
+# and mypy reports whichever of the two comes second as unreachable. Collapse
+# them to the two overloads that actually differ.
+#
+# Queries are unanchored regular expressions matched against the fully qualified
+# name, so the trailing $ matters: without it this also matches
+# Value.set_oversample_amount and replaces that too.
+vita\.vita\.(Value|CRValue)\.set$:
+    @overload
+    def set(self, value: int) -> None: ...
+
+    @overload
+    def set(self, value: float) -> None: ...
+
+# poly_float is constructible from a float, but stubgen renders the default as a
+# bare 0.0 against a poly_float annotation, which reads as a type error.
+vita\.vita\.Value\.__init__$:
+    def __init__(self, value: poly_float | float = 0.0, control_rate: bool = False) -> None: ...
+
+vita\.vita\.CRValue\.__init__$:
+    def __init__(self, value: poly_float | float = 0.0) -> None: ...

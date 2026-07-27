@@ -23,7 +23,7 @@ namespace vital {
   constexpr float kComplexPhasePcmScale = 10000.0f;
 
   namespace utils {
-    int RandomGenerator::next_seed_ = 0;
+    std::atomic<int> RandomGenerator::next_seed_{0};
 
     mono_float encodeOrderToFloat(int* order, int size) {
       // Max array size you can encode in 32 bits.

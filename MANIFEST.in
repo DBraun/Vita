@@ -1,1 +1,5 @@
-graft vita # copy everything
+graft vita  # copy everything, including the compiled extension
+
+# ...except build byproducts, which otherwise end up inside the wheel.
+global-exclude __pycache__/*
+global-exclude *.py[cod]

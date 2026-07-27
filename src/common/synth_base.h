@@ -137,6 +137,25 @@ class SynthBase : public MidiManager::Listener {
     virtual const CriticalSection& getCriticalSection() = 0;
     virtual void pauseProcessing(bool pause) = 0;
     Tuning* getTuning() { return &tuning_; }
+
+    /** RAII guard that pauses processing for the duration of a scope.
+     *
+     * Use this instead of a manual pauseProcessing(true)/(false) pair so that an
+     * exception thrown while the synth is paused still resumes it. The headless
+     * and standalone synths implement pauseProcessing by holding a
+     * CriticalSection, so failing to resume would leave that lock held forever.
+     */
+    class ScopedProcessingPause {
+      public:
+        explicit ScopedProcessingPause(SynthBase* synth) : synth_(synth) { synth_->pauseProcessing(true); }
+        ~ScopedProcessingPause() { synth_->pauseProcessing(false); }
+
+        ScopedProcessingPause(const ScopedProcessingPause&) = delete;
+        ScopedProcessingPause& operator=(const ScopedProcessingPause&) = delete;
+
+      private:
+        SynthBase* synth_;
+    };
     
     void pySetBPM(float bpm);
     void setSampleRate(double sample_rate);

@@ -25,6 +25,8 @@
 #include "synth_oscillator.h"
 #include "synth_strings.h"
 #include "voice_handler.h"
+
+#include <vector>
 #include "wavetable.h"
 #include "utils.h"
 
@@ -192,7 +194,13 @@ namespace vital {
       ValueDetails::kLinear, false, "", "Sample Tune", nullptr },
     { "sample_level", 0x000000, 0.0, 1.0, 0.70710678119, 0.0, 1.0,
       ValueDetails::kQuadratic, false, "", "Sample Level", nullptr },
-    { "sample_destination", 0x000500, 0.0, constants::kNumSourceDestinations + constants::kNumEffects, 3.0, 0.0, 1.0,
+    // note: dbraun subtracted 1 from the max. Upstream this is the count rather
+    // than the count minus one, unlike every other indexed parameter here, so
+    // the range ran one past the last routing and one past kDestinationNames.
+    // The surplus value matched no destination in ProducersModule::process, so
+    // selecting it routed the sample nowhere, and set_normalized(1.0) landed on
+    // exactly that value.
+    { "sample_destination", 0x000500, 0.0, constants::kNumSourceDestinations + constants::kNumEffects - 1, 3.0, 0.0, 1.0,
       ValueDetails::kIndexed, false, "", "Sample Destination", strings::kDestinationNames },
     { "sample_pan", 0x000000, -1.0, 1.0, 0.0, 0.0, 100.0,
       ValueDetails::kLinear, false, "%", "Sample Pan", nullptr },
@@ -513,7 +521,8 @@ namespace vital {
       ValueDetails::kLinear, false, "%", "Frequency Morph Amount", nullptr },
     { "spectral_morph_spread", 0x000407, -0.5, 0.5, 0.0, 0.0, 200.0,
       ValueDetails::kLinear, false, "%", "Frequency Morph Spread", nullptr },
-    { "destination", 0x000500, 0.0, constants::kNumSourceDestinations + constants::kNumEffects, 0.0, 0.0, 1.0,
+    // note: dbraun subtracted 1 from the max, as for sample_destination above.
+    { "destination", 0x000500, 0.0, constants::kNumSourceDestinations + constants::kNumEffects - 1, 0.0, 0.0, 1.0,
       ValueDetails::kIndexed, false, "", "Destination", strings::kDestinationNames },
     { "view_2d", 0x000402, 0.0, 2.0, 1.0, 0.0, 1.0,
       ValueDetails::kIndexed, false, "", "View 2D", strings::kOffOnNames },
@@ -617,5 +626,56 @@ namespace vital {
   }
 
   ValueDetailsLookup Parameters::lookup_;
+
+  namespace {
+    struct StringLookup {
+      const std::string* data;
+      size_t size;
+    };
+
+    template <size_t N>
+    constexpr StringLookup makeStringLookup(const std::string (&names)[N]) {
+      return StringLookup{names, N};
+    }
+
+    // Every table referenced as a string_lookup by the parameter list above.
+    const std::vector<StringLookup>& knownStringLookups() {
+      static const std::vector<StringLookup> lookups = {
+          makeStringLookup(strings::kCompressorBandNames),
+          makeStringLookup(strings::kDelayStyleNames),
+          makeStringLookup(strings::kDestinationNames),
+          makeStringLookup(strings::kDistortionFilterOrderNames),
+          makeStringLookup(strings::kDistortionTypeNames),
+          makeStringLookup(strings::kEqBandModeNames),
+          makeStringLookup(strings::kEqHighModeNames),
+          makeStringLookup(strings::kEqLowModeNames),
+          makeStringLookup(strings::kFilterModelNames),
+          makeStringLookup(strings::kFilterStyleNames),
+          makeStringLookup(strings::kFrequencySyncNames),
+          makeStringLookup(strings::kOffOnNames),
+          makeStringLookup(strings::kOversamplingNames),
+          makeStringLookup(strings::kPhaseDistortionNames),
+          makeStringLookup(strings::kRandomNames),
+          makeStringLookup(strings::kSpectralMorphNames),
+          makeStringLookup(strings::kStereoModeNames),
+          makeStringLookup(strings::kSyncNames),
+          makeStringLookup(strings::kSyncedFrequencyNames),
+          makeStringLookup(strings::kUnisonStackNames),
+          makeStringLookup(strings::kVoiceOverrideNames),
+          makeStringLookup(strings::kVoicePriorityNames),
+      };
+      return lookups;
+    }
+  } // namespace
+
+  size_t Parameters::getStringLookupSize(const ValueDetails& details) {
+    if (details.string_lookup == nullptr)
+      return 0;
+    for (const StringLookup& known : knownStringLookups()) {
+      if (known.data == details.string_lookup)
+        return known.size;
+    }
+    return 0;
+  }
 
 } // namespace vital

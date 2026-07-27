@@ -40,3 +40,9 @@ dataset
 vita/LICENSE
 dist
 headless/builds/VisualStudio2022/x64
+docs/_build
+wheelhouse
+.pytest_cache
+__pycache__
+# Written by tests/test_render.py when pytest runs from the repository root.
+generated_preset*

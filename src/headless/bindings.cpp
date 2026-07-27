@@ -20,65 +20,70 @@
 #include "wave_frame.h"
 #include <stdexcept>
 #include "synth_parameters.h"
+#include <algorithm>
 #include <cmath>
 #include <string>
+#include <vector>
 
 namespace nb = nanobind;
 using namespace vital;
 
+namespace {
 
+// How many names a control can actually display: the narrower of its value
+// range and its name table. The two disagree for a handful of Vital's controls
+// (view_2d spans 0..2 with two names; filter_*_style spans 0..9 with five), so
+// sizing the table from the range alone would read past the end of the array.
+// Parameters::getStringLookupSize owns that knowledge because the string tables
+// have internal linkage.
+size_t namedOptionCount(const vital::ValueDetails& details) {
+  if (details.value_scale != vital::ValueDetails::kIndexed)
+    return 0;
+  double span = static_cast<double>(details.max) - static_cast<double>(details.min) + 1.0;
+  if (span <= 0.0)
+    return 0;
+  return std::min(static_cast<size_t>(span), vital::Parameters::getStringLookupSize(details));
+}
+
+}  // namespace
+
+
+// Both lists are derived once from a throwaway SoundEngine and never change.
+// They are function-local statics so the C++11 "magic static" rule makes the
+// one-time initialization thread-safe on its own, rather than relying on the
+// caller happening to hold the GIL.
 class ModulationDestinationListCache {
- private:
-  static std::vector<std::string> cached_list;
-  static bool initialized;
-
-  static void initialize() {
-    if (!initialized) {
+ public:
+  static const std::vector<std::string> &get() {
+    static const std::vector<std::string> cached_list = [] {
+      std::vector<std::string> names;
       SoundEngine engine;
       vital::input_map &mono_destination_map =
           engine.getMonoModulationDestinations();
       for (auto &destination_iter : mono_destination_map) {
-        cached_list.push_back(destination_iter.first);
+        names.push_back(destination_iter.first);
       }
-      initialized = true;
-    }
-  }
-
- public:
-  static const std::vector<std::string> &get() {
-    initialize();
+      return names;
+    }();
     return cached_list;
   }
 };
 
 class ModulationSourceListCache {
- private:
-  static std::vector<std::string> cached_list;
-  static bool initialized;
-
-  static void initialize() {
-    if (!initialized) {
+ public:
+  static const std::vector<std::string> &get() {
+    static const std::vector<std::string> cached_list = [] {
+      std::vector<std::string> names;
       SoundEngine engine;
       vital::output_map &source_map = engine.getModulationSources();
       for (auto &source_iter : source_map) {
-        cached_list.push_back(source_iter.first);
+        names.push_back(source_iter.first);
       }
-      initialized = true;
-    }
-  }
-
- public:
-  static const std::vector<std::string> &get() {
-    initialize();
+      return names;
+    }();
     return cached_list;
   }
 };
-
-// Initialize static members
-std::vector<std::string> ModulationDestinationListCache::cached_list;
-bool ModulationDestinationListCache::initialized = false;
-std::vector<std::string> ModulationSourceListCache::cached_list;
-bool ModulationSourceListCache::initialized = false;
 
 
 nb::list get_modulation_destinations() {
@@ -114,10 +119,12 @@ static std::string get_control_text(HeadlessSynth &synth, const std::string &nam
     const auto &details = Parameters::getDetails(name);
     // Discrete/indexed parameters
     if (details.string_lookup) {
-        int count = static_cast<int>(details.max - details.min + 1);
-        int idx = static_cast<int>(std::lround(raw - details.min));
+        size_t count = namedOptionCount(details);
+        if (count == 0)
+            throw std::runtime_error("No name table available for control: " + name);
+        long idx = std::lround(raw - details.min);
         if (idx < 0) idx = 0;
-        else if (idx >= count) idx = count - 1;
+        else if (static_cast<size_t>(idx) >= count) idx = static_cast<long>(count) - 1;
         return details.string_lookup[idx];
     }
     // Continuous parameters: apply scaling
@@ -337,13 +344,14 @@ NB_MODULE(vita, m) {
         })
         .def_prop_ro("options", [](const vital::ValueDetails &d) {
             nb::list opts;
-            if (d.value_scale == vital::ValueDetails::kIndexed && d.string_lookup) {
-                int count = static_cast<int>(d.max - d.min + 1);
-                for (int i = 0; i < count; ++i)
-                    opts.append(std::string(d.string_lookup[i]));
-            }
+            size_t count = namedOptionCount(d);
+            for (size_t i = 0; i < count; ++i)
+                opts.append(d.string_lookup[i]);
             return opts;
-        });
+        }, "Display names for a discrete control's values, in value order.\n\n"
+           "Empty for continuous controls. A few controls accept more values\n"
+           "than Vital has names for, in which case this is shorter than\n"
+           "max - min + 1 and the surplus values have no name.");
 
     nb::enum_<SynthOscillator::SpectralMorph>(m_constants, "SpectralMorph", nb::is_arithmetic())
         .value("NoSpectralMorph", SynthOscillator::SpectralMorph::kNoSpectralMorph)
@@ -360,7 +368,11 @@ NB_MODULE(vita, m) {
         .value("Skew", SynthOscillator::SpectralMorph::kSkew);
     
     nb::enum_<SynthOscillator::DistortionType>(m_constants, "DistortionType", nb::is_arithmetic())
-            .value("None", SynthOscillator::DistortionType::kNone)
+            // "Off" rather than "None": the latter is a Python keyword, so
+            // DistortionType.None could not be written in Python source at all
+            // and only getattr(DistortionType, "None") reached it. It also made
+            // the generated type stub syntactically invalid.
+            .value("Off", SynthOscillator::DistortionType::kNone)
             .value("Sync", SynthOscillator::DistortionType::kSync)
             .value("Formant", SynthOscillator::DistortionType::kFormant)
             .value("Quantize", SynthOscillator::DistortionType::kQuantize)
@@ -499,16 +511,21 @@ NB_MODULE(vita, m) {
         .def("process", &vital::Value::process, nb::arg("num_samples"))
         .def("set_oversample_amount", &vital::Value::setOversampleAmount, nb::arg("oversample"))
         .def("value", &vital::Value::value)
-        // Handle floating point values (both float and double)
-        .def("set", [](vital::Value &self, double value) {
-            self.set(poly_float(static_cast<float>(value)));
-        }, nb::arg("value"))
+        // Overloads are registered narrowest first. nanobind tries every
+        // overload without implicit conversion before trying any with it, so
+        // the order does not change which one a given argument selects -- but
+        // generated stubs list them in registration order, and a type checker
+        // treats a leading `float` overload as shadowing `int`.
         // Handle enum values
         .def("set", [](vital::Value &self, SyncedFrequencyName value) {
             self.set(poly_float(static_cast<float>(static_cast<int>(value))));
         }, nb::arg("value"))
         // Handle integer values
         .def("set", [](vital::Value &self, int value) {
+            self.set(poly_float(static_cast<float>(value)));
+        }, nb::arg("value"))
+        // Handle floating point values (both float and double)
+        .def("set", [](vital::Value &self, double value) {
             self.set(poly_float(static_cast<float>(value)));
         }, nb::arg("value"))
         .def("__repr__", [](const vital::Value &v) {
@@ -519,14 +536,14 @@ NB_MODULE(vita, m) {
         .def(nb::init<poly_float>(),
              nb::arg("value") = 0.0f)
         .def("process", &vital::cr::Value::process, nb::arg("num_samples"))
-        // Add the same method overloads for CRValue
-        .def("set", [](vital::cr::Value &self, double value) {
-            self.set(poly_float(static_cast<float>(value)));
-        }, nb::arg("value"))
+        // Add the same method overloads for CRValue, again narrowest first.
         .def("set", [](vital::cr::Value &self, SyncedFrequencyName value) {
             self.set(poly_float(static_cast<float>(static_cast<int>(value))));
         }, nb::arg("value"))
         .def("set", [](vital::cr::Value &self, int value) {
+            self.set(poly_float(static_cast<float>(value)));
+        }, nb::arg("value"))
+        .def("set", [](vital::cr::Value &self, double value) {
             self.set(poly_float(static_cast<float>(value)));
         }, nb::arg("value"))
         .def("__repr__", [](const vital::cr::Value &v) {
@@ -536,8 +553,8 @@ NB_MODULE(vita, m) {
     // Bind the ControlValue wrapper class
     nb::class_<ControlValue>(m, "ControlValue")
         .def("value", &ControlValue::value)
-        .def("set", nb::overload_cast<double>(&ControlValue::set), nb::arg("value"))
         .def("set", nb::overload_cast<int>(&ControlValue::set), nb::arg("value"))
+        .def("set", nb::overload_cast<double>(&ControlValue::set), nb::arg("value"))
         .def("set_normalized", &ControlValue::set_normalized, nb::arg("value"),
              "Set control value using normalized 0-1 range")
         .def("get_normalized", &ControlValue::get_normalized,
@@ -546,7 +563,15 @@ NB_MODULE(vita, m) {
              "Get formatted display text for the control");
     
     // Expose the SynthBase class, specifying ProcessorRouter as its base
-    nb::class_<HeadlessSynth>(m, "Synth")
+    nb::class_<HeadlessSynth>(m, "Synth",
+        "A headless Vital synthesizer.\n\n"
+        "A new Synth starts on the init preset. Load a different one with\n"
+        "load_preset or load_json, adjust it through get_controls, then call\n"
+        "render or render_file.\n\n"
+        "Give each thread its own Synth. render, render_file, load_preset,\n"
+        "load_json and to_json all release the GIL, so separate instances\n"
+        "render in parallel. Sharing one instance across threads is safe but\n"
+        "serialized, so it gains you nothing.")
         .def(nb::init<>())  // Ensure there's a default constructor or adjust
                             // accordingly
                             // Bind the first overload of connectModulation
@@ -571,10 +596,21 @@ NB_MODULE(vita, m) {
              nb::arg("source"), nb::arg("destination"),
              "Disconnects a modulation source from a destination by name.")
 
-        .def("set_bpm", &HeadlessSynth::pySetBPM, nb::arg("bpm"))
-        .def("set_sample_rate", &HeadlessSynth::setSampleRate, nb::arg("sample_rate"))
+        .def("set_bpm", &HeadlessSynth::pySetBPM, nb::arg("bpm"),
+             "Set the tempo used by synced LFOs and delays.\n\n"
+             "Parameters:\n"
+             "  bpm (float): Beats per minute.")
+        .def("set_sample_rate", &HeadlessSynth::setSampleRate, nb::arg("sample_rate"),
+             "Set the render sample rate.\n\n"
+             "Parameters:\n"
+             "  sample_rate (float): Samples per second, e.g. 44100.")
 
         .def("render_file", &HeadlessSynth::renderAudioToFile2,
+             // The whole function is pure C++ DSP + file I/O (no Python or
+             // nanobind objects), so release the GIL for its entire duration.
+             // nanobind converts the Python args before the guard releases the
+             // GIL and converts the bool return after it re-acquires the GIL.
+             nb::call_guard<nb::gil_scoped_release>(),
              nb::arg("output_path"), nb::arg("midi_note"),
              nb::arg("midi_velocity"), nb::arg("note_dur"),
              nb::arg("render_dur"),
@@ -592,7 +628,10 @@ NB_MODULE(vita, m) {
         .def("render", &HeadlessSynth::renderAudioToNumpy, nb::arg("midi_note"),
              nb::arg("midi_velocity"), nb::arg("note_dur"),
              nb::arg("render_dur"),
-             "Renders audio to a file.\n\n"
+             "Renders audio to a NumPy array.\n\n"
+             "Releases the GIL during the render, so threads that each own a\n"
+             "separate Synth render in parallel.\n"
+             "\n"
              "Parameters:\n"
              "  midi_note (int): MIDI note to render.\n"
              "  midi_velocity (float): Velocity of the note [0-1].\n"
@@ -600,17 +639,42 @@ NB_MODULE(vita, m) {
              "  render_dur (float): Length of the audio render in seconds.\n"
              "\n"
              "Returns:\n"
-             "  bool: True if rendering was successful, False otherwise.")
+             "  numpy.ndarray: float32 array shaped (2, render_dur * sample_rate).")
 
-        .def("load_json", &HeadlessSynth::loadFromString, nb::arg("json"))
+        // load_json / to_json / load_preset only parse or serialize JSON and
+        // mutate C++/Vital state -- no Python or nanobind objects touched while
+        // working -- so release the GIL for the whole call. nanobind converts
+        // the std::string arg/return on the GIL-held side of the guard.
+        .def("load_json", &HeadlessSynth::loadFromString,
+             nb::call_guard<nb::gil_scoped_release>(), nb::arg("json"),
+             "Load a preset from a JSON string.\n\n"
+             "Parameters:\n"
+             "  json (str): Contents of a .vital preset.\n"
+             "\n"
+             "Returns:\n"
+             "  bool: True if the preset was loaded, False if it was malformed\n"
+             "  or came from a newer version of Vital.")
 
-        .def("to_json", &HeadlessSynth::pyToJson)
-    
-        .def("load_preset", &HeadlessSynth::pyLoadFromFile, nb::arg("filepath"))
-    
-        .def("load_init_preset", &HeadlessSynth::loadInitPreset, "Load the initial preset.")
-    
-        .def("clear_modulations", &HeadlessSynth::clearModulations)
+        .def("to_json", &HeadlessSynth::pyToJson,
+             nb::call_guard<nb::gil_scoped_release>(),
+             "Serialize the current state to a JSON string.\n\n"
+             "Returns:\n"
+             "  str: Preset JSON, in the same format as a .vital file.")
+
+        .def("load_preset", &HeadlessSynth::pyLoadFromFile,
+             nb::call_guard<nb::gil_scoped_release>(), nb::arg("filepath"),
+             "Load a preset from a .vital file.\n\n"
+             "Parameters:\n"
+             "  filepath (str): Path to the .vital preset.\n"
+             "\n"
+             "Returns:\n"
+             "  bool: True if the preset was loaded, False otherwise.")
+
+        .def("load_init_preset", &HeadlessSynth::loadInitPreset,
+             "Reset to the initial preset, clearing any modulations.")
+
+        .def("clear_modulations", &HeadlessSynth::clearModulations,
+             "Disconnect every modulation, leaving other controls untouched.")
         .def("get_controls", [](HeadlessSynth &synth) {
             nb::dict result;
             auto &controls = synth.getControls();
@@ -618,14 +682,33 @@ NB_MODULE(vita, m) {
                 result[name.c_str()] = ControlValue(value, name, &synth);
             }
             return result;
-        }, nb::rv_policy::reference_internal)
+        }, nb::rv_policy::reference_internal,
+           "Return every control, keyed by name.\n\n"
+           "Returns:\n"
+           "  dict[str, ControlValue]: Live handles -- setting one takes effect\n"
+           "  on this Synth immediately.")
         .def("get_control_details", [](HeadlessSynth &synth, const std::string &name) {
             // Validate control name
             if (!vital::Parameters::isParameter(name))
                 throw std::runtime_error("No metadata for control: " + name);
             // Return parameter metadata
             return vital::Parameters::getDetails(name);
-        }, nb::arg("name"), "Get metadata for a control")
-        .def("get_control_text", get_control_text)
+        }, nb::arg("name"),
+           "Get metadata for a control.\n\n"
+           "Parameters:\n"
+           "  name (str): Control name, e.g. \"delay_style\".\n"
+           "\n"
+           "Returns:\n"
+           "  ControlInfo: Range, scale, default and display information.\n"
+           "\n"
+           "Raises:\n"
+           "  RuntimeError: If no control has that name.")
+        .def("get_control_text", get_control_text, nb::arg("name"),
+             "Get the formatted display text for a control's current value.\n\n"
+             "Parameters:\n"
+             "  name (str): Control name, e.g. \"delay_style\".\n"
+             "\n"
+             "Returns:\n"
+             "  str: The value as Vital would show it, e.g. \"Ping Pong\".")
         ;
 }

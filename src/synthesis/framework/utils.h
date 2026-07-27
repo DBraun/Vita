@@ -18,6 +18,7 @@
 
 #include "common.h"
 
+#include <atomic>
 #include <cmath>
 #include <complex>
 #include <cstdlib>
@@ -46,8 +47,15 @@ namespace vital {
 
     class RandomGenerator {
       public:
-        static int next_seed_;
-          
+        // Global seed counter handed out one-per-RandomGenerator so that
+        // instances (and the voices/oscillators that own them) get distinct
+        // pseudo-random streams. It is atomic because Synth/voice construction
+        // may happen concurrently across threads (e.g. one Synth per render
+        // thread); a plain int here would be a data race. Note this counter is
+        // only touched at construction time -- the render loop uses each
+        // instance's own engine_, so rendering itself needs no synchronization.
+        static std::atomic<int> next_seed_;
+
         RandomGenerator(mono_float min, mono_float max) : engine_(next_seed_++), distribution_(min, max) { }
         RandomGenerator(const RandomGenerator& other) :
             engine_(next_seed_++), distribution_(other.distribution_.min(), other.distribution_.max()) { }
