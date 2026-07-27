@@ -56,6 +56,13 @@ and to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The oscillator and sample `destination` controls accepted one value more than
+  there are routings. Vital sizes them as `kNumSourceDestinations + kNumEffects`
+  where every comparable parameter uses `count - 1`, so the trailing value named
+  no destination and silently routed the source nowhere; `set_normalized(1.0)`
+  landed on it. Their `max` is now 13 rather than 14, so the full normalized
+  range maps onto real routings. Presets are unaffected -- they store raw
+  values, and nothing clamps on load.
 - `get_control_details(...).options` and `get_control_text` no longer read past
   the end of a control's name table. Several controls accept more values than
   Vital has names for -- `view_2d` and `view_spectrogram` span 0-2 with two

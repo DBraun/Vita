@@ -87,6 +87,59 @@ def test_known_short_tables(synth, name, expected):
     assert list(synth.get_control_details(name).options) == expected
 
 
+# Controls whose value range is deliberately wider than their name table, and
+# why. Anything not listed here should have a name for every value it accepts.
+EXPECTED_UNNAMED_VALUES = {
+    # A single style parameter spans every filter model, but each model has its
+    # own name table; kFilterStyleNames covers the analog model's five.
+    "filter_1_style": 5,
+    "filter_2_style": 5,
+    "filter_fx_style": 5,
+    # GUI-only view state, stored in the preset but never read by the engine.
+    # The third value's meaning belongs to Vital's editor, so it has no name
+    # here.
+    "osc_1_view_2d": 1,
+    "osc_2_view_2d": 1,
+    "osc_3_view_2d": 1,
+    "view_spectrogram": 1,
+}
+
+
+def test_only_known_controls_have_unnamed_values(synth, control_names):
+    """Every other control names every value it accepts.
+
+    This is the check that would have caught the out-of-bounds read: before it
+    was fixed, four *_destination controls also appeared here, reporting a
+    fifteenth option that came from an unrelated array.
+    """
+    unnamed = {}
+    for name in control_names:
+        details = synth.get_control_details(name)
+        options = list(details.options)
+        if not options:
+            continue
+        gap = int(details.max - details.min + 1) - len(options)
+        if gap:
+            unnamed[name] = gap
+
+    assert unnamed == EXPECTED_UNNAMED_VALUES
+
+
+def test_destination_range_matches_its_names(synth):
+    """Destination accepts exactly the routings it has names for.
+
+    Vital sizes this parameter as kNumSourceDestinations + kNumEffects where
+    every sibling uses count - 1, so it used to accept a trailing value that
+    routed nowhere.
+    """
+    for name in ("osc_1_destination", "osc_2_destination", "osc_3_destination",
+                 "sample_destination"):
+        details = synth.get_control_details(name)
+        options = list(details.options)
+        assert len(options) == int(details.max - details.min + 1), name
+        assert options[-1] == "REVERB", name
+
+
 def test_get_control_text_agrees_with_options(synth):
     """get_control_text must return the same names, indexed by value."""
     for name in ("delay_style", "osc_1_view_2d", "filter_1_style"):
