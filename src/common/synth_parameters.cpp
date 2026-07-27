@@ -25,6 +25,8 @@
 #include "synth_oscillator.h"
 #include "synth_strings.h"
 #include "voice_handler.h"
+
+#include <vector>
 #include "wavetable.h"
 #include "utils.h"
 
@@ -617,5 +619,56 @@ namespace vital {
   }
 
   ValueDetailsLookup Parameters::lookup_;
+
+  namespace {
+    struct StringLookup {
+      const std::string* data;
+      size_t size;
+    };
+
+    template <size_t N>
+    constexpr StringLookup makeStringLookup(const std::string (&names)[N]) {
+      return StringLookup{names, N};
+    }
+
+    // Every table referenced as a string_lookup by the parameter list above.
+    const std::vector<StringLookup>& knownStringLookups() {
+      static const std::vector<StringLookup> lookups = {
+          makeStringLookup(strings::kCompressorBandNames),
+          makeStringLookup(strings::kDelayStyleNames),
+          makeStringLookup(strings::kDestinationNames),
+          makeStringLookup(strings::kDistortionFilterOrderNames),
+          makeStringLookup(strings::kDistortionTypeNames),
+          makeStringLookup(strings::kEqBandModeNames),
+          makeStringLookup(strings::kEqHighModeNames),
+          makeStringLookup(strings::kEqLowModeNames),
+          makeStringLookup(strings::kFilterModelNames),
+          makeStringLookup(strings::kFilterStyleNames),
+          makeStringLookup(strings::kFrequencySyncNames),
+          makeStringLookup(strings::kOffOnNames),
+          makeStringLookup(strings::kOversamplingNames),
+          makeStringLookup(strings::kPhaseDistortionNames),
+          makeStringLookup(strings::kRandomNames),
+          makeStringLookup(strings::kSpectralMorphNames),
+          makeStringLookup(strings::kStereoModeNames),
+          makeStringLookup(strings::kSyncNames),
+          makeStringLookup(strings::kSyncedFrequencyNames),
+          makeStringLookup(strings::kUnisonStackNames),
+          makeStringLookup(strings::kVoiceOverrideNames),
+          makeStringLookup(strings::kVoicePriorityNames),
+      };
+      return lookups;
+    }
+  } // namespace
+
+  size_t Parameters::getStringLookupSize(const ValueDetails& details) {
+    if (details.string_lookup == nullptr)
+      return 0;
+    for (const StringLookup& known : knownStringLookups()) {
+      if (known.data == details.string_lookup)
+        return known.size;
+    }
+    return 0;
+  }
 
 } // namespace vital

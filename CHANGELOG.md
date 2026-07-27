@@ -28,6 +28,8 @@ and to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   understand the API.
 - `tests/test_threading.py`, covering concurrent rendering, concurrent preset
   loading, shared-`Synth` serialization, and recovery from failed loads.
+- `tests/test_control_options.py`, which reads the metadata of every control
+  rather than a hand-picked few.
 
 ### Changed
 
@@ -54,6 +56,16 @@ and to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `get_control_details(...).options` and `get_control_text` no longer read past
+  the end of a control's name table. Several controls accept more values than
+  Vital has names for -- `view_2d` and `view_spectrogram` span 0-2 with two
+  names, `filter_*_style` spans 0-9 with five -- and the count was taken from
+  the value range rather than the table. In 0.0.5 reading `.options` on any of
+  those seven controls **crashed the interpreter**; four more
+  (`osc_{1,2,3}_destination`, `sample_destination`) silently reported a
+  fifteenth option, `'Shelf'`, that does not exist. Both now stop at the last
+  real name, so a control's `options` may be shorter than `max - min + 1` when
+  the surplus values are unnamed.
 - A failed `load_json` or `load_preset` no longer leaves the synth's critical
   section held. Because rendering releases the GIL, a subsequent `render` would
   have hung uninterruptibly instead of raising.

@@ -20,11 +20,32 @@
 #include "wave_frame.h"
 #include <stdexcept>
 #include "synth_parameters.h"
+#include <algorithm>
 #include <cmath>
 #include <string>
+#include <vector>
 
 namespace nb = nanobind;
 using namespace vital;
+
+namespace {
+
+// How many names a control can actually display: the narrower of its value
+// range and its name table. The two disagree for a handful of Vital's controls
+// (view_2d spans 0..2 with two names; filter_*_style spans 0..9 with five), so
+// sizing the table from the range alone would read past the end of the array.
+// Parameters::getStringLookupSize owns that knowledge because the string tables
+// have internal linkage.
+size_t namedOptionCount(const vital::ValueDetails& details) {
+  if (details.value_scale != vital::ValueDetails::kIndexed)
+    return 0;
+  double span = static_cast<double>(details.max) - static_cast<double>(details.min) + 1.0;
+  if (span <= 0.0)
+    return 0;
+  return std::min(static_cast<size_t>(span), vital::Parameters::getStringLookupSize(details));
+}
+
+}  // namespace
 
 
 // Both lists are derived once from a throwaway SoundEngine and never change.
@@ -98,10 +119,12 @@ static std::string get_control_text(HeadlessSynth &synth, const std::string &nam
     const auto &details = Parameters::getDetails(name);
     // Discrete/indexed parameters
     if (details.string_lookup) {
-        int count = static_cast<int>(details.max - details.min + 1);
-        int idx = static_cast<int>(std::lround(raw - details.min));
+        size_t count = namedOptionCount(details);
+        if (count == 0)
+            throw std::runtime_error("No name table available for control: " + name);
+        long idx = std::lround(raw - details.min);
         if (idx < 0) idx = 0;
-        else if (idx >= count) idx = count - 1;
+        else if (static_cast<size_t>(idx) >= count) idx = static_cast<long>(count) - 1;
         return details.string_lookup[idx];
     }
     // Continuous parameters: apply scaling
@@ -321,13 +344,14 @@ NB_MODULE(vita, m) {
         })
         .def_prop_ro("options", [](const vital::ValueDetails &d) {
             nb::list opts;
-            if (d.value_scale == vital::ValueDetails::kIndexed && d.string_lookup) {
-                int count = static_cast<int>(d.max - d.min + 1);
-                for (int i = 0; i < count; ++i)
-                    opts.append(std::string(d.string_lookup[i]));
-            }
+            size_t count = namedOptionCount(d);
+            for (size_t i = 0; i < count; ++i)
+                opts.append(d.string_lookup[i]);
             return opts;
-        });
+        }, "Display names for a discrete control's values, in value order.\n\n"
+           "Empty for continuous controls. A few controls accept more values\n"
+           "than Vital has names for, in which case this is shorter than\n"
+           "max - min + 1 and the surplus values have no name.");
 
     nb::enum_<SynthOscillator::SpectralMorph>(m_constants, "SpectralMorph", nb::is_arithmetic())
         .value("NoSpectralMorph", SynthOscillator::SpectralMorph::kNoSpectralMorph)

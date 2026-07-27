@@ -138,6 +138,24 @@ namespace vital {
         return lookup_.getAllDetails();
       }
 
+      /** Number of names reachable through a ValueDetails' string_lookup.
+       *
+       * ValueDetails::string_lookup is a bare pointer with no length attached,
+       * and several parameter ranges are wider than the table they point at:
+       * view_2d spans 0..2 while kOffOnNames holds two names, and
+       * filter_*_style spans 0..9 while kFilterStyleNames holds five. Sizing a
+       * table as max - min + 1 therefore reads past the end of the array.
+       *
+       * This lives beside the parameter list rather than at the call site
+       * because the string tables have internal linkage: every translation unit
+       * that includes synth_strings.h gets its own copies, so only this one can
+       * match string_lookup by address.
+       *
+       * @param details Parameter metadata to inspect.
+       * @return Number of names in the table, or 0 if there is none.
+       */
+      static size_t getStringLookupSize(const ValueDetails& details);
+
       static ValueDetailsLookup lookup_;
 
     private:
