@@ -56,6 +56,14 @@ and to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- macOS wheels no longer carry a dead x86-64 slice. The Xcode project defaults
+  to `ARCHS = "arm64 x86_64"`, so it built both and `lipo`'d them together,
+  while nanobind's static library is built for one architecture only. The
+  x86-64 slice therefore linked without any nanobind symbols -- Python
+  extensions defer undefined symbols to load time, so nothing failed -- and
+  `delocate --require-archs arm64` was satisfied by the good slice. The build
+  now targets only the architecture being built for, which also halves the
+  macOS build.
 - The oscillator and sample `destination` controls accepted one value more than
   there are routings. Vital sizes them as `kNumSourceDestinations + kNumEffects`
   where every comparable parameter uses `count - 1`, so the trailing value named

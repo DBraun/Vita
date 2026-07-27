@@ -12,6 +12,7 @@ interpreter currently running the build.
 
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -50,6 +51,27 @@ class BinaryDistribution(Distribution):
             Always True.
         """
         return True
+
+
+def macos_archs() -> str:
+    """Return the architectures the macOS build should target.
+
+    The Xcode project defaults to ``arm64 x86_64``, so without an override it
+    builds both slices and lipos them together. nanobind's static library is
+    built natively for one architecture only, so the other slice silently links
+    without it -- Python extensions defer undefined symbols to load time, which
+    hides the problem until import.
+
+    Returns:
+        A space-separated architecture list for xcodebuild's ``ARCHS``.
+    """
+    # cibuildwheel sets ARCHFLAGS ("-arch arm64", possibly several for
+    # universal2); outside of it, build for the machine we are on.
+    archflags = os.environ["ARCHFLAGS"] if "ARCHFLAGS" in os.environ else ""
+    archs = re.findall(r"-arch\s+(\S+)", archflags)
+    if archs:
+        return " ".join(dict.fromkeys(archs))
+    return platform.machine()
 
 
 def simd_flags() -> str:
@@ -160,11 +182,15 @@ class BuildVitaExtension(build_ext):
         env.setdefault("pythonLocation", sys.base_prefix)
         print(f"PYTHONMAJOR={env['PYTHONMAJOR']} pythonLocation={env['pythonLocation']}")
 
+        archs = macos_archs()
+        print(f"Building for ARCHS={archs}")
+
         project = THIS_DIR / "headless" / "builds" / "osx" / "Vita.xcodeproj"
         subprocess.run(
             [
                 "xcodebuild",
                 "ONLY_ACTIVE_ARCH=NO",
+                f"ARCHS={archs}",
                 "-configuration", "Release",
                 "-project", str(project),
                 'CODE_SIGN_IDENTITY=',
