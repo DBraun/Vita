@@ -38,7 +38,7 @@ jobs:
           - { os: windows-2022, platform_tag: win_amd64 }
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           submodules: recursive
 
@@ -46,12 +46,12 @@ jobs:
       # has to provide are the toolchains it cannot install for itself.
       - name: Add msbuild to PATH
         if: runner.os == 'Windows'
-        uses: microsoft/setup-msbuild@v2
+        uses: microsoft/setup-msbuild@v3
 
       # The manylinux images already ship a recent CMake.
       - name: Get CMake
         if: runner.os != 'Linux'
-        uses: lukka/get-cmake@latest
+        uses: lukka/get-cmake@v4.4.0
 
       - name: Build wheels
         uses: pypa/cibuildwheel@v4.1.1
@@ -71,9 +71,9 @@ jobs:
     needs: build
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
 
@@ -113,9 +113,35 @@ jobs:
       - id: deployment
         uses: actions/deploy-pages@v5
 
+  # Nothing else ties the release tag to the version the wheels are built with,
+  # so a mismatch would quietly publish the wrong version to PyPI. This runs
+  # with no dependencies, so it goes red within seconds of publishing a release
+  # rather than after the whole wheel matrix.
+  check-version:
+    name: Check tag matches vita/version.py
+    runs-on: ubuntu-24.04
+    if: github.event_name == 'release' && github.event.action == 'published'
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Compare release tag with the packaged version
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          version=$(python -c "import re, pathlib; print(re.search(r'\"([^\"]+)\"', pathlib.Path('vita/version.py').read_text()).group(1))")
+          echo "vita/version.py = $version"
+          echo "release tag     = $TAG"
+          if [ "$TAG" != "v$version" ] && [ "$TAG" != "$version" ]; then
+            echo "::error::Release tag '$TAG' does not match vita/version.py ($version). Bump the version, or retag."
+            exit 1
+          fi
+          if ! grep -q "^## \[$version\]" CHANGELOG.md; then
+            echo "::warning::CHANGELOG.md has no '## [$version]' section."
+          fi
+
   upload-pypi:
     name: Upload wheels to PyPI
-    needs: [build, docs]
+    needs: [build, docs, check-version]
     runs-on: ubuntu-24.04
     if: github.event_name == 'release' && github.event.action == 'published'
     steps:
@@ -131,3 +157,7 @@ jobs:
         with:
           user: __token__
           password: ${{ secrets.PYPI_API_TOKEN }}
+          # PyPI rejects a version that already exists, which would otherwise
+          # make re-running a partially failed release error out on the wheels
+          # that already landed.
+          skip-existing: true
