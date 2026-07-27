@@ -1,5 +1,11 @@
 [build-system]
-requires = ["setuptools", "wheel"]
+# typing_extensions is needed by nanobind's stub generator, which setup.py runs
+# after compiling the extension. nanobind only requires it below 3.11.
+requires = [
+    "setuptools",
+    "wheel",
+    "typing_extensions; python_version < '3.11'",
+]
 build-backend = "setuptools.build_meta"
 
 [tool.cibuildwheel]
